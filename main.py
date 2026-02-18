@@ -419,6 +419,11 @@ class PhigrosPlugin(Star):
 
             if result.success:
                 session_token = result.session_token
+                logger.info(f"扫码登录成功，获取到 sessionToken: {session_token[:20] if session_token else 'None'}...")
+
+                if not session_token:
+                    yield event.plain_result("❌ 登录成功但未获取到 sessionToken，请重试")
+                    return
 
                 # 自动绑定
                 platform, user_id = self._get_user_id(event)

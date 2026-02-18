@@ -189,6 +189,7 @@ class TapTapLoginManagerAPI:
                     raise Exception(f"检查状态失败: HTTP {response.status} - {error_text}")
 
                 data = await response.json()
+                logger.debug(f"登录状态响应: {data}")
                 return data
 
         except Exception as e:
@@ -227,7 +228,10 @@ class TapTapLoginManagerAPI:
 
                 # 登录成功
                 if status == "success":
-                    session_token = result.get("sessionToken")
+                    # 尝试多种可能的字段名
+                    session_token = result.get("sessionToken") or result.get("session_token") or result.get("token")
+                    logger.info(f"收到登录成功响应，sessionToken: {session_token[:20] if session_token else 'None'}...")
+                    logger.info(f"完整响应数据: {result}")
                     if session_token:
                         self._session_token = session_token
                         self._current_status = LoginStatus.SUCCESS
