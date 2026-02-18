@@ -228,12 +228,10 @@ class TapTapLoginManagerAPI:
                 retry_after = result.get("retryAfter", 2)
                 logger.info(f"登录状态: {status}, 重试间隔: {retry_after}秒")
 
-                # 登录成功
-                if status == "success":
-                    # 尝试多种可能的字段名
-                    session_token = result.get("sessionToken") or result.get("session_token") or result.get("token")
+                # 登录成功（API 返回的状态可能是 success 或 Confirmed）
+                if status == "success" or status == "Confirmed":
+                    session_token = result.get("sessionToken")
                     logger.info(f"收到登录成功响应，sessionToken: {session_token[:20] if session_token else 'None'}...")
-                    logger.info(f"完整响应数据: {result}")
                     if session_token:
                         self._session_token = session_token
                         self._current_status = LoginStatus.SUCCESS
@@ -250,8 +248,8 @@ class TapTapLoginManagerAPI:
                     else:
                         return LoginResult(success=False, error_message="登录成功但未获取到 sessionToken")
 
-                # 二维码已扫描，等待确认
-                elif status == "scanned":
+                # 二维码已扫描，等待确认（API 可能返回 Scanned 或 scanned）
+                elif status == "scanned" or status == "Scanned":
                     if last_status != LoginStatus.SCANNED:
                         last_status = LoginStatus.SCANNED
                         self._current_status = LoginStatus.SCANNED
@@ -260,8 +258,8 @@ class TapTapLoginManagerAPI:
                         if callback:
                             callback(LoginStatus.SCANNED, "二维码已扫描，请在手机上确认登录")
 
-                # 等待扫码
-                elif status == "pending":
+                # 等待扫码（API 可能返回 Pending 或 pending）
+                elif status == "pending" or status == "Pending":
                     remaining = int(timeout - (loop.time() - start_time))
                     if callback and remaining % 10 == 0:  # 每10秒更新一次
                         callback(LoginStatus.QR_READY, f"等待扫码... ({remaining}秒)")
