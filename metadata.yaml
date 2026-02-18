@@ -1,0 +1,6 @@
+name: astrbot_plugin_phigros
+display_name: Phigros Query
+desc: Phigros 音游数据查询插件，支持查询玩家存档、RKS历史、排行榜、歌曲搜索和新曲速递
+version: v1.0.0
+author: 飞翔的死猪
+repo: https://github.com/your-repo/astrbot_plugin_phigros
