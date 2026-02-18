@@ -1,4 +1,5 @@
 import aiohttp
+import asyncio
 import json
 import hashlib
 import re
@@ -42,7 +43,6 @@ class UserDataManager:
 
     async def initialize(self):
         """初始化异步锁"""
-        import asyncio
         self._lock = asyncio.Lock()
 
     def _load_data(self):
@@ -453,6 +453,9 @@ class PhigrosPlugin(Star):
             finally:
                 # 确保浏览器资源被释放
                 await login_manager.terminate()
+
+        except Exception as e:
+            yield event.plain_result(f"❌ 扫码登录过程出错: {str(e)}")
 
     # ==================== 命令: 解绑用户数据 ====================
     @filter.command("phi_unbind")
