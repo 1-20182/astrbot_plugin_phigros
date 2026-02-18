@@ -19,13 +19,13 @@ except ImportError:
     RENDERER_AVAILABLE = False
     logger.warning("渲染器未加载，图片功能不可用")
 
-# 导入扫码登录模块
+# 导入扫码登录模块 (API 版本)
 try:
-    from .taptap_login import TapTapLoginManager, check_playwright_installed
-    PLAYWRIGHT_AVAILABLE = True
+    from .taptap_login_api import TapTapLoginManagerAPI, LoginStatus, LoginResult
+    API_LOGIN_AVAILABLE = True
 except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
-    logger.warning("扫码登录模块未加载，请安装 playwright")
+    API_LOGIN_AVAILABLE = False
+    logger.warning("API 扫码登录模块未加载")
 
 BASE_URL = "https://r0semi.xtower.site/api/v1/open"
 DEFAULT_API_TOKEN = ""
@@ -366,93 +366,89 @@ class PhigrosPlugin(Star):
         使用 TapTap 扫码登录（自动获取 sessionToken）
         用法: /phi_qrlogin [taptapVersion]
         示例: /phi_qrlogin cn
-        注意: 需要安装 playwright: pip install playwright && playwright install chromium
         """
-        if not PLAYWRIGHT_AVAILABLE:
+        if not API_LOGIN_AVAILABLE:
             yield event.plain_result(
                 "❌ 扫码登录功能不可用\n"
-                "请安装依赖:\n"
-                "1. pip install playwright\n"
-                "2. playwright install chromium\n"
-                "安装完成后重启 AstrBot"
+                "💡 请检查插件是否完整安装"
             )
             return
-        
+
         yield event.plain_result("⏳ 正在获取二维码，请稍候...")
-        
+
         try:
-            from .taptap_login import TapTapLoginManager, LoginStatus, LoginResult
-            
-            login_manager = TapTapLoginManager(self.output_dir)
+            # 使用 API 版本的登录管理器
+            login_manager = TapTapLoginManagerAPI(
+                base_url=BASE_URL,
+                api_token=self.api_token or "",
+                output_dir=self.output_dir,
+                session=self.session
+            )
 
-            try:
-                # 先生成二维码
-                qr_base64 = await login_manager.generate_qr_code()
+            # 生成二维码
+            qr_base64 = await login_manager.generate_qr_code(taptap_version)
 
-                if not qr_base64:
-                    yield event.plain_result(
-                        "❌ 获取二维码失败\n"
-                        "💡 可能原因：\n"
-                        "1. 官网页面结构变化\n"
-                        "2. 网络连接问题\n"
-                        "3. 请检查日志了解详情\n\n"
-                        "建议使用 /phi_bind <token> 手动绑定"
+            if not qr_base64:
+                yield event.plain_result(
+                    "❌ 获取二维码失败\n"
+                    "💡 可能原因：\n"
+                    "1. API Token 无效或未配置\n"
+                    "2. 网络连接问题\n"
+                    "3. 请检查日志了解详情\n\n"
+                    "建议使用 /phi_bind <token> 手动绑定"
+                )
+                return
+
+            # 发送二维码
+            qr_path = self.output_dir / "taptap_qr.png"
+            if qr_path.exists():
+                from astrbot.api.message_components import Image
+                yield event.chain_result([
+                    Plain("📱 请使用 TapTap APP 扫描下方二维码登录:\n"),
+                    Image(file=str(qr_path)),
+                    Plain("⏰ 二维码有效期 2 分钟，请在手机上确认登录...")
+                ])
+            else:
+                yield event.plain_result("❌ 二维码文件未生成，请检查日志")
+                return
+
+            # 等待扫码
+            yield event.plain_result("⏳ 等待扫码...")
+
+            result: LoginResult = await login_manager.wait_for_scan(timeout=120)
+
+            if result.success:
+                session_token = result.session_token
+
+                # 自动绑定
+                platform, user_id = self._get_user_id(event)
+                await self.user_data.bind_user(platform, user_id, session_token, taptap_version)
+
+                # 验证 token 并获取 RKS
+                try:
+                    test_data = await self._make_request(
+                        method="POST",
+                        endpoint="/save",
+                        params={"calculate_rks": "true"},
+                        json_data={"sessionToken": session_token, "taptapVersion": taptap_version},
                     )
-                    return
+                    summary = test_data.get("summary", {})
+                    rks = summary.get("rks", "N/A")
 
-                # 发送二维码
-                qr_path = self.output_dir / "taptap_qr.png"
-                if qr_path.exists():
-                    from astrbot.api.message_components import Image
-                    yield event.chain_result([
-                        Plain("📱 请使用 TapTap APP 扫描下方二维码登录:\n"),
-                        Image(file=str(qr_path)),
-                        Plain("⏰ 二维码有效期 2 分钟，请在手机上确认登录...")
-                    ])
-                else:
-                    yield event.plain_result("❌ 二维码文件未生成，请检查日志")
-                    return
-
-                # 等待扫码
-                yield event.plain_result("⏳ 等待扫码...")
-
-                result: LoginResult = await login_manager.wait_for_scan(timeout=120)
-
-                if result.success:
-                    session_token = result.session_token
-
-                    # 自动绑定
-                    platform, user_id = self._get_user_id(event)
-                    await self.user_data.bind_user(platform, user_id, session_token, taptap_version)
-
-                    # 验证 token 并获取 RKS
-                    try:
-                        test_data = await self._make_request(
-                            method="POST",
-                            endpoint="/save",
-                            params={"calculate_rks": "true"},
-                            json_data={"sessionToken": session_token, "taptapVersion": taptap_version},
-                        )
-                        summary = test_data.get("summary", {})
-                        rks = summary.get("rks", "N/A")
-
-                        yield event.plain_result(
-                            f"🎉 扫码登录成功！\n"
-                            f"📊 当前 RKS: {rks}\n"
-                            f"🎮 版本: {taptap_version}\n"
-                            f"✅ 账号已自动绑定，现在可以直接使用 /phi_save 查询了~"
-                        )
-                    except Exception as e:
-                        yield event.plain_result(
-                            f"✅ 扫码登录成功并已绑定！\n"
-                            f"⚠️ 但验证时出错: {str(e)}\n"
-                            f"💡 绑定已保存，可以直接尝试 /phi_save"
-                        )
-                else:
-                    yield event.plain_result(f"❌ {result.error_message or '登录失败'}\n请重试或使用 /phi_bind <token> 手动绑定")
-            finally:
-                # 确保浏览器资源被释放
-                await login_manager.terminate()
+                    yield event.plain_result(
+                        f"🎉 扫码登录成功！\n"
+                        f"📊 当前 RKS: {rks}\n"
+                        f"🎮 版本: {taptap_version}\n"
+                        f"✅ 账号已自动绑定，现在可以直接使用 /phi_save 查询了~"
+                    )
+                except Exception as e:
+                    yield event.plain_result(
+                        f"✅ 扫码登录成功并已绑定！\n"
+                        f"⚠️ 但验证时出错: {str(e)}\n"
+                        f"💡 绑定已保存，可以直接尝试 /phi_save"
+                    )
+            else:
+                yield event.plain_result(f"❌ {result.error_message or '登录失败'}\n请重试或使用 /phi_bind <token> 手动绑定")
 
         except Exception as e:
             yield event.plain_result(f"❌ 扫码登录过程出错: {str(e)}")
@@ -812,7 +808,6 @@ class PhigrosPlugin(Star):
 1. /phi_qrlogin [taptapVersion]
    TapTap 扫码登录（自动获取 token）⭐推荐
    示例: /phi_qrlogin cn
-   注意: 需要安装 playwright
 
 2. /phi_bind <sessionToken> [taptapVersion]
    手动绑定 Phigros 账号

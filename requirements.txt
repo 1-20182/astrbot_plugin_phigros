@@ -1,14 +1,13 @@
 # Phigros Query 插件依赖
 # 基础依赖
-aiohttp>=3.8.0          # HTTP 异步请求
+aiohttp>=3.8.0          # HTTP 异步请求（API 调用必需）
 Pillow>=10.0.0          # 图片生成与处理
+
+# 二维码生成
+qrcode>=7.4.2           # 二维码生成（扫码登录用）
 
 # 数据解析依赖
 PyYAML>=6.0             # YAML 配置文件解析
-
-# 扫码登录依赖（可选）
-playwright>=1.40.0      # TapTap 扫码登录功能需要
-# 安装后需运行: playwright install chromium
 
 # AstrBot 依赖（安装 AstrBot 时已包含，无需重复安装）
 # astrbot>=0.1.0

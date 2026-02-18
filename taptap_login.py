@@ -16,9 +16,8 @@ try:
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
-    logger.warning("未安装 playwright，扫码登录功能不可用")
-    logger.info("请运行: pip install playwright")
-    logger.info("然后运行: playwright install chromium")
+    # 静默处理，不再输出警告（已改用 API 版本）
+    pass
 
 
 class LoginStatus(Enum):

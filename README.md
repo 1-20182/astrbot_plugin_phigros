@@ -39,15 +39,9 @@ python install.py
 pip install -r requirements.txt
 ```
 
-2. 安装 Playwright（扫码登录需要）：
-```bash
-pip install playwright
-playwright install chromium
-```
+2. 把整个文件夹丢进 AstrBot 的 `plugins` 目录
 
-3. 把整个文件夹丢进 AstrBot 的 `plugins` 目录
-
-4. 重启 AstrBot，搞定！
+3. 重启 AstrBot，搞定！
 
 ---
 
@@ -55,33 +49,33 @@ playwright install chromium
 
 ```
 astrbot_plugin_phigros/
-├── 📄 main.py              # 我的大脑（主代码）
-├── 📄 renderer.py          # 我的画笔（渲染器）
-├── 📄 taptap_login.py      # 扫码登录小助手
-├── 📄 metadata.yaml        # 我的身份证
-├── 📄 requirements.txt     # 我的零食清单（依赖）
-├── 📄 _conf_schema.json    # 我的配置表
-├── 📄 install.py           # 自动安装小助手
-├── 📄 README.md            # 就是你现在看的这个！
-├── 🎨 ILLUSTRATION/        # 曲绘收藏夹
+├── 📄 main.py                 # 我的大脑（主代码）
+├── 📄 renderer.py             # 我的画笔（渲染器）
+├── 📄 taptap_login_api.py     # 扫码登录小助手（API版本）
+├── 📄 metadata.yaml           # 我的身份证
+├── 📄 requirements.txt        # 我的零食清单（依赖）
+├── 📄 _conf_schema.json       # 我的配置表
+├── 📄 install.py              # 自动安装小助手
+├── 📄 README.md               # 就是你现在看的这个！
+├── 🎨 ILLUSTRATION/           # 曲绘收藏夹
 │   ├── 曲名.曲师.png
 │   └── ...
-├── 📂 resources/           # 资源宝库
-│   ├── 📂 data/            # 歌曲数据
-│   │   ├── info.csv        # 歌曲基础信息
-│   │   ├── difficulty.csv  # 定数表
-│   │   ├── nicklist.yaml   # 昵称对照
+├── 📂 resources/              # 资源宝库
+│   ├── 📂 data/               # 歌曲数据
+│   │   ├── info.csv           # 歌曲基础信息
+│   │   ├── difficulty.csv     # 定数表
+│   │   ├── nicklist.yaml      # 昵称对照
 │   │   └── ...
-│   ├── 📂 font/            # 字体文件
-│   │   └── phi.ttf         # Phigros 专用字体
-│   └── 📂 img/             # 图片资源
-│       ├── 📂 rating/      # 评级图标
-│       ├── 📂 logo/        # Logo图标
-│       └── 📂 other/       # 其他图标
-└── 📂 output/              # 作品展示墙
-    ├── 📄 user_data.json   # 用户绑定数据
-    ├── 📄 taptap_qr.png    # 临时二维码
-    └── 📂 cache/           # 临时小仓库
+│   ├── 📂 font/               # 字体文件
+│   │   └── phi.ttf            # Phigros 专用字体
+│   └── 📂 img/                # 图片资源
+│       ├── 📂 rating/         # 评级图标
+│       ├── 📂 logo/           # Logo图标
+│       └── 📂 other/          # 其他图标
+└── 📂 output/                 # 作品展示墙
+    ├── 📄 user_data.json      # 用户绑定数据
+    ├── 📄 taptap_qr.png       # 临时二维码
+    └── 📂 cache/              # 临时小仓库
 ```
 
 ---
@@ -196,7 +190,6 @@ astrbot_plugin_phigros/
 - Python >= 3.8（太老了不行哦）
 - aiohttp >= 3.8.0
 - Pillow >= 10.0.0（生成图片用）
-- playwright >= 1.40.0（扫码登录用）
 - AstrBot（这是必须的啦）
 
 ---
@@ -206,9 +199,8 @@ astrbot_plugin_phigros/
 1. **曲绘要自己准备！** 我不会自带曲绘哦，请自行放入 `ILLUSTRATION` 文件夹
 2. **API Token** - 没填的话会用内置的，但建议自己搞一个更稳定
 3. **图片生成** - 需要 Pillow，没装的话只能看文字版（没那么酷）
-4. **扫码登录** - 需要 playwright，没装的话只能手动绑定
-5. **要联网！** 我要连 Phigros API 才能查数据
-6. **绑定账号** - 强烈建议绑定，省得每次都输长长的 token
+4. **要联网！** 我要连 Phigros API 才能查数据
+5. **绑定账号** - 强烈建议绑定，省得每次都输长长的 token
 
 ---
 
@@ -240,6 +232,11 @@ astrbot_plugin_phigros/
 - ✅ 新增 Best30 成绩图功能（`/phi_b30`）
 - ✅ 自动生成最美的 30 首歌曲成绩图
 - ✅ 支持排名显示（金银铜牌）
+
+### v1.4.0 - API 版扫码登录！
+- ✅ 使用 Phigros Query API 实现扫码登录
+- ✅ 无需 Playwright，更轻量快速！
+- ✅ 二维码有效期 2 分钟
 
 ### v1.2.0 - 扫码登录来啦！
 - ✅ 新增 TapTap 扫码登录功能（`/phi_qrlogin`）
