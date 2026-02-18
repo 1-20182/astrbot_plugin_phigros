@@ -3,13 +3,11 @@ Phigros 数据渲染器（重构版）
 参考 phi-plugin 架构，使用模板引擎 + PIL 渲染
 """
 
-import aiohttp
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict, Any, List, Tuple
 from pathlib import Path
-from io import BytesIO
-from jinja2 import Template
-import base64
+from astrbot.api import logger
 
 try:
     from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
@@ -20,27 +18,31 @@ except ImportError as e:
 class PhigrosRenderer:
     """Phigros 数据渲染器（模板引擎版）"""
 
-    def __init__(self, cache_dir: str = "./cache", illustration_path: Optional[str] = None):
+    def __init__(self, cache_dir: str = "./cache", illustration_path: Optional[str] = None, image_quality: int = 95):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(exist_ok=True)
-        
+
         # 设置曲绘路径
         self.illustration_path = Path(illustration_path) if illustration_path else Path(__file__).parent / "ILLUSTRATION"
-        
+
+        # 图片质量
+        self.image_quality = image_quality
+
         # 资源路径
         self.res_path = Path(__file__).parent / "resources"
         self.res_path.mkdir(exist_ok=True)
-        self.html_path = self.res_path / "html"
-        self.html_path.mkdir(exist_ok=True)
-        
+
         # 字体缓存
         self._font_cache: Dict[str, ImageFont.FreeTypeFont] = {}
         self._base_height = 1080  # 基准高度
-        
+
         # 曲绘缓存
         self._illustration_cache: Dict[str, Image.Image] = {}
         self._illustration_map: Dict[str, str] = {}
         self._build_illustration_map()
+
+        # 线程池用于 CPU 密集型渲染
+        self._executor = ThreadPoolExecutor(max_workers=2)
 
     def _build_illustration_map(self):
         """构建曲绘文件名映射"""
@@ -62,7 +64,9 @@ class PhigrosRenderer:
 
     async def terminate(self):
         """清理资源"""
-        pass
+        self._executor.shutdown(wait=True)
+        # 清理曲绘缓存
+        self._illustration_cache.clear()
 
     def _get_font(self, size: int, target_height: int = None) -> ImageFont.FreeTypeFont:
         """获取字体，根据目标高度按比例缩放"""
@@ -106,25 +110,26 @@ class PhigrosRenderer:
         """获取歌曲曲绘"""
         if song_key in self._illustration_cache:
             return self._illustration_cache[song_key].copy()
-        
+
         file_path = None
         key_lower = song_key.lower()
-        
+
         if key_lower in self._illustration_map:
             file_path = self._illustration_map[key_lower]
         else:
             song_name = key_lower.split(".")[0] if "." in key_lower else key_lower
             if song_name in self._illustration_map:
                 file_path = self._illustration_map[song_name]
-        
+
         if file_path and Path(file_path).exists():
             try:
-                img = Image.open(file_path).convert("RGBA")
-                self._illustration_cache[song_key] = img
-                return img.copy()
+                with Image.open(file_path) as img:
+                    img = img.convert("RGBA")
+                    self._illustration_cache[song_key] = img.copy()
+                    return img.copy()
             except Exception as e:
-                print(f"加载曲绘失败: {e}")
-        
+                logger.warning(f"加载曲绘失败: {e}")
+
         return None
 
     def _create_gradient_background(self, size: Tuple[int, int], 
@@ -311,7 +316,7 @@ class PhigrosRenderer:
         
         # 保存图片
         canvas = canvas.convert("RGB")
-        canvas.save(output_path, "PNG", quality=95)
+        canvas.save(output_path, "PNG", quality=self.image_quality)
         return output_path
 
     async def render_song_detail(self, song_data: Dict[str, Any], output_path: str) -> str:
@@ -386,13 +391,24 @@ class PhigrosRenderer:
                 x_diff += 120
         
         canvas = canvas.convert("RGB")
-        canvas.save(output_path, "PNG", quality=95)
+        canvas.save(output_path, "PNG", quality=self.image_quality)
         return output_path
 
     async def render_best30(self, data: Dict[str, Any], output_path: str) -> str:
         """渲染 Best30 成绩图"""
+        # 在线程池中执行 CPU 密集型渲染
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self._executor,
+            self._render_best30_sync,
+            data,
+            output_path
+        )
+
+    def _render_best30_sync(self, data: Dict[str, Any], output_path: str) -> str:
+        """同步渲染 Best30 成绩图（在线程池中执行）"""
         img_width, img_height = 1920, 1080
-        
+
         # 创建渐变背景
         canvas = self._create_gradient_background(
             (img_width, img_height),
@@ -400,16 +416,17 @@ class PhigrosRenderer:
             (35, 40, 60)
         )
         draw = ImageDraw.Draw(canvas)
-        
+
         # 解析数据
         save = data.get("save", {})
         game_record = save.get("game_record", {})
         summary = data.get("summary", {})
-        
+
         rks = summary.get("rks", 0)
-        
+
         # 计算每首歌曲的 RKS 贡献值并排序
-        # RKS = (acc * 0.9 + 定数) * 某个系数，这里简化处理
+        # RKS 计算：单曲 RKS = ((acc - 55) / 45) ^ 2 * 定数 (当 acc >= 70)
+        # 取最高的 30 首单曲 RKS 的平均值
         song_list = []
         for song_key, records in game_record.items():
             if not records:
@@ -418,19 +435,25 @@ class PhigrosRenderer:
             acc = record.get("accuracy", 0)
             score = record.get("score", 0)
             diff = record.get("difficulty", "?").upper()
-            
-            # 简化的 RKS 计算 (实际计算更复杂)
-            # 这里按准确率排序
+            constant = record.get("constant", 0)  # 谱面定数
+
+            # 计算单曲 RKS
+            single_rks = 0
+            if acc >= 70 and constant > 0:
+                single_rks = ((acc - 55) / 45) ** 2 * constant
+
             song_list.append({
                 "song_key": song_key,
                 "acc": acc,
                 "score": score,
                 "diff": diff,
+                "constant": constant,
+                "single_rks": single_rks,
                 "record": record
             })
-        
-        # 按准确率排序，取前30
-        song_list.sort(key=lambda x: x["acc"], reverse=True)
+
+        # 按单曲 RKS 排序（这才是真正的 Best30 逻辑）
+        song_list.sort(key=lambda x: x["single_rks"], reverse=True)
         best30 = song_list[:30]
         
         # 绘制标题栏
@@ -505,7 +528,7 @@ class PhigrosRenderer:
         
         # 保存图片
         canvas = canvas.convert("RGB")
-        canvas.save(output_path, "PNG", quality=95)
+        canvas.save(output_path, "PNG", quality=self.image_quality)
         return output_path
 
     async def render_leaderboard(self, data: Dict[str, Any], output_path: str) -> str:
@@ -560,5 +583,5 @@ class PhigrosRenderer:
             y_offset += 70
         
         canvas = canvas.convert("RGB")
-        canvas.save(output_path, "PNG", quality=95)
+        canvas.save(output_path, "PNG", quality=self.image_quality)
         return output_path

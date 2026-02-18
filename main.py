@@ -1,14 +1,13 @@
 import aiohttp
 import json
-import os
-import asyncio
-import base64
+import hashlib
+import re
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from pathlib import Path
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
+from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.message_components import Plain
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger
 
 # 导入渲染器
@@ -33,12 +32,19 @@ DEFAULT_API_TOKEN = ""
 
 class UserDataManager:
     """用户数据管理器 - 保存和读取用户绑定的 sessionToken"""
-    
+
     def __init__(self, data_dir: Path):
+        self.data_dir = data_dir
         self.data_file = data_dir / "user_data.json"
         self._data: Dict[str, Dict[str, str]] = {}
+        self._lock = None  # 异步锁，在 initialize 中初始化
         self._load_data()
-    
+
+    async def initialize(self):
+        """初始化异步锁"""
+        import asyncio
+        self._lock = asyncio.Lock()
+
     def _load_data(self):
         """从文件加载用户数据"""
         if self.data_file.exists():
@@ -51,73 +57,125 @@ class UserDataManager:
                 self._data = {}
         else:
             self._data = {}
-    
+
     def _save_data(self):
         """保存用户数据到文件"""
         try:
-            with open(self.data_file, 'w', encoding='utf-8') as f:
-                json.dump(self._data, f, ensure_ascii=False, indent=2)
+            # 确保目录存在
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            # 设置文件权限为仅所有者可读写 (Unix/Linux)
+            import os
+            if os.name != 'nt':  # 非 Windows 系统
+                import stat
+                old_umask = os.umask(0o077)
+            try:
+                with open(self.data_file, 'w', encoding='utf-8') as f:
+                    json.dump(self._data, f, ensure_ascii=False, indent=2)
+                # 设置文件权限
+                if os.name != 'nt':
+                    os.chmod(self.data_file, stat.S_IRUSR | stat.S_IWUSR)
+            finally:
+                if os.name != 'nt':
+                    os.umask(old_umask)
         except Exception as e:
             logger.error(f"保存用户数据失败: {e}")
-    
-    def bind_user(self, platform: str, user_id: str, session_token: str, taptap_version: str = "cn") -> bool:
+
+    def _encrypt_token(self, token: str) -> str:
+        """对 token 进行简单混淆（非加密，仅增加读取难度）"""
+        # 使用简单的 base64 编码 + 前缀混淆
+        import base64
+        encoded = base64.b64encode(token.encode()).decode()
+        return f"enc:{encoded}"
+
+    def _decrypt_token(self, encrypted: str) -> str:
+        """解密 token"""
+        import base64
+        if encrypted.startswith("enc:"):
+            encoded = encrypted[4:]
+            return base64.b64decode(encoded.encode()).decode()
+        return encrypted  # 兼容旧数据
+
+    async def bind_user(self, platform: str, user_id: str, session_token: str, taptap_version: str = "cn") -> bool:
         """
         绑定用户数据
-        
+
         Args:
             platform: 平台标识 (如 qq, wechat 等)
             user_id: 用户ID
             session_token: Phigros sessionToken
             taptap_version: TapTap 版本 (cn/global)
-        
+
         Returns:
             bool: 是否绑定成功
         """
-        key = f"{platform}:{user_id}"
-        self._data[key] = {
-            "session_token": session_token,
-            "taptap_version": taptap_version,
-            "bind_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        self._save_data()
+        async with self._lock:
+            key = f"{platform}:{user_id}"
+            self._data[key] = {
+                "session_token": self._encrypt_token(session_token),
+                "taptap_version": taptap_version,
+                "bind_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            self._save_data()
         return True
-    
-    def unbind_user(self, platform: str, user_id: str) -> bool:
+
+    async def unbind_user(self, platform: str, user_id: str) -> bool:
         """
         解绑用户数据
-        
+
         Args:
             platform: 平台标识
             user_id: 用户ID
-        
+
         Returns:
             bool: 是否解绑成功
         """
-        key = f"{platform}:{user_id}"
-        if key in self._data:
-            del self._data[key]
-            self._save_data()
-            return True
-        return False
-    
+        async with self._lock:
+            key = f"{platform}:{user_id}"
+            if key in self._data:
+                del self._data[key]
+                self._save_data()
+                return True
+            return False
+
     def get_user_data(self, platform: str, user_id: str) -> Optional[Dict[str, str]]:
         """
         获取用户绑定的数据
-        
+
         Args:
             platform: 平台标识
             user_id: 用户ID
-        
+
         Returns:
             Dict 或 None: 包含 session_token 和 taptap_version 的字典
         """
         key = f"{platform}:{user_id}"
-        return self._data.get(key)
-    
+        data = self._data.get(key)
+        if data:
+            # 解密 token
+            return {
+                "session_token": self._decrypt_token(data["session_token"]),
+                "taptap_version": data.get("taptap_version", "cn"),
+                "bind_time": data.get("bind_time", "")
+            }
+        return None
+
     def is_user_bound(self, platform: str, user_id: str) -> bool:
         """检查用户是否已绑定"""
         key = f"{platform}:{user_id}"
         return key in self._data
+
+
+def sanitize_filename(name: str) -> str:
+    """清理文件名，防止路径穿越攻击"""
+    # 移除路径分隔符和危险字符
+    sanitized = re.sub(r'[\\/:*?"<>|]', '_', name)
+    # 限制长度
+    if len(sanitized) > 50:
+        sanitized = sanitized[:50]
+    # 如果为空，使用默认值
+    if not sanitized:
+        sanitized = "unnamed"
+    return sanitized
 
 
 @register("astrbot_plugin_phigros", "Assistant", "Phigros 音游数据查询插件", "1.0.0")
@@ -127,27 +185,35 @@ class PhigrosPlugin(Star):
         self.session: Optional[aiohttp.ClientSession] = None
         self.api_token: Optional[str] = None
         self.renderer: Optional[PhigrosRenderer] = None
-        self.output_dir: Path = Path(__file__).parent / "output"
-        self.output_dir.mkdir(exist_ok=True)
-        
+
+        # 使用 StarTools 获取插件数据目录
+        self.data_dir: Path = StarTools.get_data_dir("astrbot_plugin_phigros")
+        self.output_dir = self.data_dir / "output"
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
         # 初始化用户数据管理器
-        self.user_data = UserDataManager(self.output_dir)
-        
+        self.user_data = UserDataManager(self.data_dir)
+
         # 从插件配置中读取设置
         self.plugin_config = config or {}
         logger.info(f"Phigros 插件配置: {self.plugin_config}")
 
     async def initialize(self):
         """插件初始化"""
-        self.session = aiohttp.ClientSession()
-        
+        # 初始化用户数据管理器的锁
+        await self.user_data.initialize()
+
+        # 设置 HTTP 请求超时
+        timeout = aiohttp.ClientTimeout(total=30, connect=10)
+        self.session = aiohttp.ClientSession(timeout=timeout)
+
         # 从插件配置中读取 API Token，如果没有则使用默认 Token
         self.api_token = self.plugin_config.get("phigros_api_token", DEFAULT_API_TOKEN)
         if self.api_token:
-            logger.info(f"Phigros API Token 已配置: {self.api_token[:10]}...")
+            logger.info("Phigros API Token 已配置")
         else:
             logger.warning("Phigros API Token 未配置，请在 WebUI 中设置")
-        
+
         # 读取其他配置
         self.enable_renderer = self.plugin_config.get("enable_renderer", True)
         self.illustration_path = self.plugin_config.get("illustration_path", "./ILLUSTRATION")
@@ -155,7 +221,7 @@ class PhigrosPlugin(Star):
         self.default_taptap_version = self.plugin_config.get("default_taptap_version", "cn")
         self.default_search_limit = self.plugin_config.get("default_search_limit", 5)
         self.default_history_limit = self.plugin_config.get("default_history_limit", 10)
-        
+
         # 初始化渲染器
         if RENDERER_AVAILABLE and self.enable_renderer:
             try:
@@ -163,7 +229,8 @@ class PhigrosPlugin(Star):
                 illust_path = Path(__file__).parent / self.illustration_path.replace("./", "")
                 self.renderer = PhigrosRenderer(
                     cache_dir=str(self.output_dir / "cache"),
-                    illustration_path=str(illust_path)
+                    illustration_path=str(illust_path),
+                    image_quality=self.image_quality
                 )
                 await self.renderer.initialize()
                 logger.info("渲染器初始化成功")
@@ -189,6 +256,9 @@ class PhigrosPlugin(Star):
         self, method: str, endpoint: str, params: Optional[Dict] = None, json_data: Optional[Dict] = None
     ) -> Dict[str, Any]:
         """发起 HTTP 请求"""
+        if not self.session:
+            raise Exception("HTTP 会话未初始化")
+
         url = f"{BASE_URL}{endpoint}"
         try:
             async with self.session.request(
@@ -198,15 +268,30 @@ class PhigrosPlugin(Star):
                 params=params,
                 json=json_data,
             ) as response:
-                data = await response.json()
+                # 首先检查响应状态
                 if response.status != 200:
-                    error_msg = data.get("detail", f"请求失败，状态码: {response.status}")
+                    # 尝试读取错误信息
+                    try:
+                        error_data = await response.json()
+                        error_msg = error_data.get("detail", f"请求失败，状态码: {response.status}")
+                    except (json.JSONDecodeError, aiohttp.ContentTypeError):
+                        # 非 JSON 响应，读取文本
+                        error_text = await response.text()
+                        error_msg = f"请求失败，状态码: {response.status}，响应: {error_text[:200]}"
                     raise Exception(error_msg)
-                return data
+
+                # 成功响应，解析 JSON
+                try:
+                    data = await response.json()
+                    if not isinstance(data, dict):
+                        raise Exception(f"响应格式错误: 期望 dict，实际为 {type(data).__name__}")
+                    return data
+                except json.JSONDecodeError as e:
+                    raise Exception(f"解析响应数据失败: {str(e)}")
         except aiohttp.ClientError as e:
             raise Exception(f"网络请求错误: {str(e)}")
-        except json.JSONDecodeError:
-            raise Exception("解析响应数据失败")
+        except asyncio.TimeoutError:
+            raise Exception("请求超时，请稍后重试")
 
     async def _render_and_send(
         self, event: AstrMessageEvent, 
@@ -258,7 +343,7 @@ class PhigrosPlugin(Star):
             )
             
             # 保存用户数据
-            self.user_data.bind_user(platform, user_id, session_token, taptap_version)
+            await self.user_data.bind_user(platform, user_id, session_token, taptap_version)
             
             # 获取用户存档摘要
             summary = test_data.get("summary", {})
@@ -299,75 +384,75 @@ class PhigrosPlugin(Star):
             from .taptap_login import TapTapLoginManager, LoginStatus, LoginResult
             
             login_manager = TapTapLoginManager(self.output_dir)
-            
-            # 先生成二维码
-            qr_base64 = await login_manager.generate_qr_code()
-            
-            if not qr_base64:
-                yield event.plain_result(
-                    "❌ 获取二维码失败\n"
-                    "💡 可能原因：\n"
-                    "1. 官网页面结构变化\n"
-                    "2. 网络连接问题\n"
-                    "3. 请检查日志了解详情\n\n"
-                    "建议使用 /phi_bind <token> 手动绑定"
-                )
-                return
-            
-            # 发送二维码
-            qr_path = self.output_dir / "taptap_qr.png"
-            if qr_path.exists():
-                from astrbot.api.message_components import Image
-                yield event.chain_result([
-                    Plain("📱 请使用 TapTap APP 扫描下方二维码登录:\n"),
-                    Image(file=str(qr_path)),
-                    Plain("⏰ 二维码有效期 2 分钟，请在手机上确认登录...")
-                ])
-            else:
-                yield event.plain_result("❌ 二维码文件未生成，请检查日志")
-                return
-            
-            # 等待扫码
-            yield event.plain_result("⏳ 等待扫码...")
-            
-            result: LoginResult = await login_manager.wait_for_scan(timeout=120)
-            
-            if result.success:
-                session_token = result.session_token
-                
-                # 自动绑定
-                platform, user_id = self._get_user_id(event)
-                self.user_data.bind_user(platform, user_id, session_token, taptap_version)
-                
-                # 验证 token 并获取 RKS
-                try:
-                    test_data = await self._make_request(
-                        method="POST",
-                        endpoint="/save",
-                        params={"calculate_rks": "true"},
-                        json_data={"sessionToken": session_token, "taptapVersion": taptap_version},
-                    )
-                    summary = test_data.get("summary", {})
-                    rks = summary.get("rks", "N/A")
-                    
+
+            try:
+                # 先生成二维码
+                qr_base64 = await login_manager.generate_qr_code()
+
+                if not qr_base64:
                     yield event.plain_result(
-                        f"🎉 扫码登录成功！\n"
-                        f"📊 当前 RKS: {rks}\n"
-                        f"🎮 版本: {taptap_version}\n"
-                        f"✅ 账号已自动绑定，现在可以直接使用 /phi_save 查询了~"
+                        "❌ 获取二维码失败\n"
+                        "💡 可能原因：\n"
+                        "1. 官网页面结构变化\n"
+                        "2. 网络连接问题\n"
+                        "3. 请检查日志了解详情\n\n"
+                        "建议使用 /phi_bind <token> 手动绑定"
                     )
-                except Exception as e:
-                    yield event.plain_result(
-                        f"✅ 扫码登录成功并已绑定！\n"
-                        f"⚠️ 但验证时出错: {str(e)}\n"
-                        f"💡 绑定已保存，可以直接尝试 /phi_save"
-                    )
-            else:
-                yield event.plain_result(f"❌ {result.error_message or '登录失败'}\n请重试或使用 /phi_bind <token> 手动绑定")
-                
-        except Exception as e:
-            logger.error(f"扫码登录出错: {e}")
-            yield event.plain_result(f"❌ 扫码登录出错: {str(e)}")
+                    return
+
+                # 发送二维码
+                qr_path = self.output_dir / "taptap_qr.png"
+                if qr_path.exists():
+                    from astrbot.api.message_components import Image
+                    yield event.chain_result([
+                        Plain("📱 请使用 TapTap APP 扫描下方二维码登录:\n"),
+                        Image(file=str(qr_path)),
+                        Plain("⏰ 二维码有效期 2 分钟，请在手机上确认登录...")
+                    ])
+                else:
+                    yield event.plain_result("❌ 二维码文件未生成，请检查日志")
+                    return
+
+                # 等待扫码
+                yield event.plain_result("⏳ 等待扫码...")
+
+                result: LoginResult = await login_manager.wait_for_scan(timeout=120)
+
+                if result.success:
+                    session_token = result.session_token
+
+                    # 自动绑定
+                    platform, user_id = self._get_user_id(event)
+                    await self.user_data.bind_user(platform, user_id, session_token, taptap_version)
+
+                    # 验证 token 并获取 RKS
+                    try:
+                        test_data = await self._make_request(
+                            method="POST",
+                            endpoint="/save",
+                            params={"calculate_rks": "true"},
+                            json_data={"sessionToken": session_token, "taptapVersion": taptap_version},
+                        )
+                        summary = test_data.get("summary", {})
+                        rks = summary.get("rks", "N/A")
+
+                        yield event.plain_result(
+                            f"🎉 扫码登录成功！\n"
+                            f"📊 当前 RKS: {rks}\n"
+                            f"🎮 版本: {taptap_version}\n"
+                            f"✅ 账号已自动绑定，现在可以直接使用 /phi_save 查询了~"
+                        )
+                    except Exception as e:
+                        yield event.plain_result(
+                            f"✅ 扫码登录成功并已绑定！\n"
+                            f"⚠️ 但验证时出错: {str(e)}\n"
+                            f"💡 绑定已保存，可以直接尝试 /phi_save"
+                        )
+                else:
+                    yield event.plain_result(f"❌ {result.error_message or '登录失败'}\n请重试或使用 /phi_bind <token> 手动绑定")
+            finally:
+                # 确保浏览器资源被释放
+                await login_manager.terminate()
 
     # ==================== 命令: 解绑用户数据 ====================
     @filter.command("phi_unbind")
@@ -378,7 +463,7 @@ class PhigrosPlugin(Star):
         """
         platform, user_id = self._get_user_id(event)
         
-        if self.user_data.unbind_user(platform, user_id):
+        if await self.user_data.unbind_user(platform, user_id):
             yield event.plain_result("✅ 已解绑 Phigros 账号")
         else:
             yield event.plain_result("❌ 你还没有绑定账号哦~")
@@ -635,11 +720,12 @@ class PhigrosPlugin(Star):
             # 如果有曲绘，渲染第一张歌曲的详情
             if self.renderer and items:
                 first_song = items[0]
+                safe_keyword = sanitize_filename(keyword)
                 async for result in self._render_and_send(
                     event,
                     self.renderer.render_song_detail,
                     first_song,
-                    f"song_{keyword}.png"
+                    f"song_{safe_keyword}.png"
                 ):
                     yield result
             else:

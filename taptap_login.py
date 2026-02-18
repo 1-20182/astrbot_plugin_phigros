@@ -16,9 +16,9 @@ try:
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
     PLAYWRIGHT_AVAILABLE = False
-    print("警告: 未安装 playwright，扫码登录功能不可用")
-    print("请运行: pip install playwright")
-    print("然后运行: playwright install chromium")
+    logger.warning("未安装 playwright，扫码登录功能不可用")
+    logger.info("请运行: pip install playwright")
+    logger.info("然后运行: playwright install chromium")
 
 
 class LoginStatus(Enum):
@@ -212,15 +212,17 @@ class TapTapLoginManager:
         """等待任意一个元素出现"""
         if not self._page:
             return None
-        
+
         for selector in selectors:
             try:
                 element = await self._page.wait_for_selector(selector, timeout=timeout)
                 if element:
                     return element
-            except:
+            except Exception as e:
+                # 记录具体异常类型，便于调试
+                logger.debug(f"等待元素 {selector} 失败: {type(e).__name__}: {e}")
                 continue
-        
+
         return None
     
     async def _save_screenshot(self, filename: str = "debug.png") -> Optional[str]:
@@ -339,12 +341,17 @@ class TapTapLoginManager:
             return LoginResult(success=False, error_message="页面未初始化")
         
         logger.info(f"开始等待扫码，超时时间: {timeout}秒")
-        
-        start_time = asyncio.get_event_loop().time()
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.get_event_loop()
+
+        start_time = loop.time()
         check_interval = 2
         last_status = None
-        
-        while (asyncio.get_event_loop().time() - start_time) < timeout:
+
+        while (loop.time() - start_time) < timeout:
             try:
                 # 检查是否已登录 - 尝试多种方式获取 token
                 session_token = await self._page.evaluate("""
@@ -388,14 +395,7 @@ class TapTapLoginManager:
                     self._current_status = LoginStatus.SUCCESS
                     logger.info(f"登录成功，获取到 sessionToken: {session_token[:20]}...")
                     
-                    # 保存 token 到文件（方便调试）
-                    try:
-                        token_file = self.output_dir / "last_token.txt"
-                        with open(token_file, 'w') as f:
-                            f.write(session_token)
-                        logger.info(f"Token 已保存到: {token_file}")
-                    except Exception as e:
-                        logger.warning(f"保存 token 到文件失败: {e}")
+                    # Token 已通过用户数据管理器保存，不再单独保存到文件
                     
                     if callback:
                         callback(LoginStatus.SUCCESS, "登录成功！")
@@ -439,8 +439,8 @@ class TapTapLoginManager:
                 
                 # 等待中
                 else:
-                    remaining = int(timeout - (asyncio.get_event_loop().time() - start_time))
-                    
+                    remaining = int(timeout - (loop.time() - start_time))
+
                     if callback and remaining % 10 == 0:  # 每10秒更新一次
                         callback(LoginStatus.QR_READY, f"等待扫码... ({remaining}秒)")
                 
