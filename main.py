@@ -406,15 +406,14 @@ class PhigrosPlugin(Star):
                 yield event.chain_result([
                     Plain("📱 请使用 TapTap APP 扫描下方二维码登录:\n"),
                     Image(file=str(qr_path)),
-                    Plain("⏰ 二维码有效期 2 分钟，请在手机上确认登录...")
+                    Plain("⏰ 二维码有效期 2 分钟，请在手机上确认登录...\n⏳ 等待扫码中...")
                 ])
             else:
                 yield event.plain_result("❌ 二维码文件未生成，请检查日志")
                 return
 
             # 等待扫码
-            yield event.plain_result("⏳ 等待扫码...")
-
+            logger.info("开始等待用户扫码...")
             result: LoginResult = await login_manager.wait_for_scan(timeout=120)
 
             if result.success:

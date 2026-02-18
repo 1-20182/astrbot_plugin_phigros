@@ -222,9 +222,11 @@ class TapTapLoginManagerAPI:
 
         while (loop.time() - start_time) < timeout:
             try:
+                logger.debug(f"正在检查登录状态... (已等待 {int(loop.time() - start_time)} 秒)")
                 result = await self.check_login_status()
                 status = result.get("status")
                 retry_after = result.get("retryAfter", 2)
+                logger.info(f"登录状态: {status}, 重试间隔: {retry_after}秒")
 
                 # 登录成功
                 if status == "success":
@@ -285,7 +287,12 @@ class TapTapLoginManagerAPI:
 
                     return LoginResult(success=False, error_message=f"登录出错: {error_msg}")
 
+                # 未知状态
+                else:
+                    logger.warning(f"未知的登录状态: {status}, 完整数据: {result}")
+
                 # 等待后重试
+                logger.debug(f"当前状态: {status}, 等待 {retry_after} 秒后重试...")
                 await asyncio.sleep(retry_after)
 
             except Exception as e:
