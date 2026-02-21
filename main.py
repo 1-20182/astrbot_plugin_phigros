@@ -573,6 +573,77 @@ class PhigrosPlugin(Star):
         except Exception as e:
             yield event.plain_result(f"❌ 获取 Best30 失败: {str(e)}")
 
+    # ==================== 命令: 获取 BestN SVG 图片 (API 版本) ====================
+    @filter.command("phi_bestn")
+    async def get_bestn_svg(self, event: AstrMessageEvent, n: int = 27, theme: str = "black", session_token: str = None, taptap_version: str = None):
+        """
+        获取 BestN SVG 成绩图（API 直接返回）
+        用法: /phi_bestn [n] [theme] [sessionToken] [taptapVersion]
+        示例: /phi_bestn 27 black
+        提示: n 建议 27，theme 可选 black 或 white
+        """
+        try:
+            # 如果没有提供 session_token，尝试从绑定数据获取
+            if session_token is None:
+                platform, user_id = self._get_user_id(event)
+                user_data = self.user_data.get_user_data(platform, user_id)
+                
+                if user_data is None:
+                    yield event.plain_result(
+                        "❌ 未提供 sessionToken 且未绑定账号\n"
+                        "💡 请使用 /phi_qrlogin 扫码登录\n"
+                        "或使用 /phi_bind <token> 绑定账号"
+                    )
+                    return
+                
+                session_token = user_data["session_token"]
+                if taptap_version is None:
+                    taptap_version = user_data.get("taptap_version", self.default_taptap_version)
+            
+            # 使用配置的默认值
+            if taptap_version is None:
+                taptap_version = self.default_taptap_version
+            
+            yield event.plain_result(f"⏳ 正在获取 Best{n} SVG 图片...")
+            
+            # 调用 API 获取 SVG
+            url = f"{BASE_URL}/image/bn"
+            params = {"format": "svg"}
+            json_data = {
+                "sessionToken": session_token,
+                "taptapVersion": taptap_version,
+                "n": n,
+                "theme": theme
+            }
+            
+            async with self.session.post(
+                url=url,
+                headers=self._get_headers(),
+                params=params,
+                json=json_data
+            ) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    raise Exception(f"获取 BestN 图片失败: HTTP {response.status}")
+                
+                # 获取 SVG 数据
+                svg_data = await response.text()
+                
+                # 保存 SVG 文件
+                output_path = self.output_dir / f"bestn_{session_token[:8]}_{n}.svg"
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(svg_data)
+                
+                # 发送 SVG 图片
+                from astrbot.api.message_components import Image
+                yield event.chain_result([
+                    Plain(f"🎨 Best{n} 成绩图 ({theme}主题)\n"),
+                    Image(file=str(output_path))
+                ])
+                
+        except Exception as e:
+            yield event.plain_result(f"❌ 获取 BestN 图片失败: {str(e)}")
+
     # ==================== 命令: 查询 RKS 历史 ====================
     @filter.command("phi_rks_history")
     async def get_rks_history(self, event: AstrMessageEvent, session_token: str = None, limit: int = None):
@@ -822,36 +893,41 @@ class PhigrosPlugin(Star):
 
 【数据查询】
 4. /phi_b30 [sessionToken] [taptapVersion]
-   获取 Best 30 成绩图（带曲绘）⭐推荐
+   获取 Best 30 成绩图（本地渲染，带曲绘）⭐推荐
    示例: /phi_b30 或 /phi_b30 your_token cn
    💡 已绑定账号可直接使用 /phi_b30
 
-5. /phi_save [sessionToken] [taptapVersion]
+5. /phi_bestn [n] [theme] [sessionToken] [taptapVersion]
+   获取 BestN SVG 成绩图（API 直接返回）🆕
+   示例: /phi_bestn 27 black
+   💡 n 建议 27，theme 可选 black/white
+
+6. /phi_save [sessionToken] [taptapVersion]
    获取用户存档数据（带曲绘图片）
    示例: /phi_save 或 /phi_save your_token cn
    💡 已绑定账号可直接使用 /phi_save
 
-6. /phi_rks_history [sessionToken] [limit]
+7. /phi_rks_history [sessionToken] [limit]
    查询 RKS 历史变化
    示例: /phi_rks_history 或 /phi_rks_history your_token 10
    💡 已绑定账号可直接使用 /phi_rks_history
 
-7. /phi_leaderboard
+8. /phi_leaderboard
    获取 RKS 排行榜 Top（带图片）
 
-8. /phi_rank <start> [end]
+9. /phi_rank <start> [end]
    按排名区间查询玩家
    示例: /phi_rank 1 10
 
-9. /phi_search <关键词> [limit]
-   搜索曲目信息（带曲绘图片）
-   示例: /phi_search Originally 5
+10. /phi_search <关键词> [limit]
+    搜索曲目信息（带曲绘图片）
+    示例: /phi_search Originally 5
 
-10. /phi_updates [count]
+11. /phi_updates [count]
     获取新曲速递
     示例: /phi_updates 3
 
-11. /phi_help
+12. /phi_help
     显示此帮助信息
 
 💡 使用提示:
