@@ -1,38 +1,98 @@
+"""
+🎮 Phigros Query 插件主模块
+
+核心功能：查询 Phigros 游戏数据、生成成绩图、扫码登录等
+"""
+
 import aiohttp
 import asyncio
 import json
-import hashlib
-import re
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from pathlib import Path
+
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.message_components import Plain
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger
 
-# 导入渲染器
+# 导入配置
+from .config import (
+    BASE_URL, DEFAULT_API_TOKEN,
+    HTTP_TIMEOUT, HTTP_CONNECT_TIMEOUT, HTTP_SOCK_READ_TIMEOUT,
+    HTTP_POOL_SIZE, HTTP_POOL_PER_HOST,
+    DEFAULT_ILLUSTRATION_PATH, DEFAULT_TAPTAP_VERSION,
+    DEFAULT_SEARCH_LIMIT, DEFAULT_HISTORY_LIMIT,
+    CACHE_TTL, QR_LOGIN_TIMEOUT
+)
+
+# 导入工具函数
+from .utils import (
+    SimpleCache, resolve_illustration_path,
+    sanitize_filename, encrypt_token, decrypt_token,
+    send_image_with_fallback, format_score, format_acc, format_rks,
+    truncate_text
+)
+
+# 可选模块导入（带容错）
+# 使用传统的 try/except 导入方式
+
+# SVG 转换器
+try:
+    from .svg_converter import convert_svg_to_png, svg_converter_available, get_converter
+    SVG_CONVERTER_AVAILABLE = True
+except ImportError as e:
+    SVG_CONVERTER_AVAILABLE = False
+    logger.warning(f"svg_converter 模块未加载: {e}")
+
+# 旧版渲染器
 try:
     from .renderer import PhigrosRenderer
     RENDERER_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     RENDERER_AVAILABLE = False
-    logger.warning("渲染器未加载，图片功能不可用")
+    logger.warning(f"renderer 模块未加载: {e}")
 
-# 导入扫码登录模块 (API 版本)
+# 扫码登录
 try:
     from .taptap_login_api import TapTapLoginManagerAPI, LoginStatus, LoginResult
     API_LOGIN_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     API_LOGIN_AVAILABLE = False
-    logger.warning("API 扫码登录模块未加载")
+    logger.warning(f"taptap_login_api 模块未加载: {e}")
 
-BASE_URL = "https://r0semi.xtower.site/api/v1/open"
-DEFAULT_API_TOKEN = ""
+# 曲绘更新器
+try:
+    from .illustration_updater import auto_update_illustrations, IllustrationUpdater
+    ILLUSTRATION_UPDATER_AVAILABLE = True
+except ImportError as e:
+    ILLUSTRATION_UPDATER_AVAILABLE = False
+    logger.warning(f"illustration_updater 模块未加载: {e}")
+
+# 高级渲染器
+try:
+    from .advanced_renderer import AdvancedPhigrosRenderer
+    ADVANCED_RENDERER_AVAILABLE = True
+except ImportError as e:
+    ADVANCED_RENDERER_AVAILABLE = False
+    logger.warning(f"advanced_renderer 模块未加载: {e}")
+
+# Phi-Plugin 风格渲染器
+try:
+    from .phi_style_renderer import PhiStyleRenderer
+    PHI_STYLE_RENDERER_AVAILABLE = True
+except ImportError as e:
+    PHI_STYLE_RENDERER_AVAILABLE = False
+    logger.warning(f"phi_style_renderer 模块未加载: {e}")
 
 
 class UserDataManager:
-    """用户数据管理器 - 保存和读取用户绑定的 sessionToken"""
+    """
+    👤 用户数据管理器
+    
+    帮你保管 sessionToken，绑定一次，永久免输！
+    数据存在本地，安全又可靠~ 🔒
+    """
 
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
@@ -165,21 +225,15 @@ class UserDataManager:
         return key in self._data
 
 
-def sanitize_filename(name: str) -> str:
-    """清理文件名，防止路径穿越攻击"""
-    # 移除路径分隔符和危险字符
-    sanitized = re.sub(r'[\\/:*?"<>|]', '_', name)
-    # 限制长度
-    if len(sanitized) > 50:
-        sanitized = sanitized[:50]
-    # 如果为空，使用默认值
-    if not sanitized:
-        sanitized = "unnamed"
-    return sanitized
-
-
-@register("astrbot_plugin_phigros", "Assistant", "Phigros 音游数据查询插件", "1.0.0")
+@register("astrbot_plugin_phigros", "Assistant", "Phigros 音游数据查询插件", "1.8.0")
 class PhigrosPlugin(Star):
+    """
+    🎮 Phigros 音游数据查询插件
+    
+    查存档、看排名、搜歌曲、追新曲... 功能多多，快乐加倍！
+    支持扫码登录、账号绑定，还能生成美美的成绩图~ ✨
+    """
+    
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context, config)
         self.session: Optional[aiohttp.ClientSession] = None
@@ -203,9 +257,19 @@ class PhigrosPlugin(Star):
         # 初始化用户数据管理器的锁
         await self.user_data.initialize()
 
-        # 设置 HTTP 请求超时
-        timeout = aiohttp.ClientTimeout(total=30, connect=10)
-        self.session = aiohttp.ClientSession(timeout=timeout)
+        # 设置 HTTP 请求超时和连接池
+        timeout = aiohttp.ClientTimeout(total=30, connect=10, sock_read=20)
+        connector = aiohttp.TCPConnector(
+            limit=50,  # 连接池大小
+            limit_per_host=20,  # 每个主机的连接数
+            enable_cleanup_closed=True,  # 清理关闭的连接
+            force_close=False,  # 复用连接
+        )
+        self.session = aiohttp.ClientSession(
+            timeout=timeout,
+            connector=connector,
+            headers={"User-Agent": "PhigrosQueryBot/1.8.0"}
+        )
 
         # 从插件配置中读取 API Token，如果没有则使用默认 Token
         self.api_token = self.plugin_config.get("phigros_api_token", DEFAULT_API_TOKEN)
@@ -222,21 +286,103 @@ class PhigrosPlugin(Star):
         self.default_search_limit = self.plugin_config.get("default_search_limit", 5)
         self.default_history_limit = self.plugin_config.get("default_history_limit", 10)
 
+        # 初始化 API 缓存（TTL 5 分钟）
+        self._api_cache = SimpleCache(ttl=300)
+        logger.info("🚀 API 缓存已初始化")
+
         # 初始化渲染器
-        if RENDERER_AVAILABLE and self.enable_renderer:
+        logger.info(f"🔧 开始初始化渲染器: ADVANCED_RENDERER_AVAILABLE={ADVANCED_RENDERER_AVAILABLE}, enable_renderer={self.enable_renderer}")
+
+        # 首先尝试使用 PhiStyleRenderer（直接导入）
+        try:
+            from .phi_style_renderer import PhiStyleRenderer
+            illust_path = resolve_illustration_path(Path(__file__).parent, self.illustration_path)
+            avatar_path = Path(__file__).parent / "AVATAR"
+            logger.info("🎨 直接创建 PhiStyleRenderer")
+            self.renderer = PhiStyleRenderer(
+                plugin_dir=Path(__file__).parent,
+                cache_dir=self.output_dir / "cache",
+                illustration_path=illust_path,
+                image_quality=self.image_quality,
+                avatar_path=avatar_path
+            )
+            logger.info("✅ PhiStyleRenderer 创建成功")
+        except Exception as e:
+            logger.error(f"❌ PhiStyleRenderer 创建失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            self.renderer = None
+        
+        # 如果直接创建失败，尝试使用高级渲染器
+        if self.renderer is None and ADVANCED_RENDERER_AVAILABLE and self.enable_renderer:
             try:
-                # 解析曲绘路径
-                illust_path = Path(__file__).parent / self.illustration_path.replace("./", "")
+                illust_path = resolve_illustration_path(Path(__file__).parent, self.illustration_path)
+                avatar_path = Path(__file__).parent / "AVATAR"
+                renderer_mode = self.plugin_config.get("renderer_mode", "auto")
+                logger.info(f"🎨 创建 AdvancedPhigrosRenderer，模式: {renderer_mode}")
+                self.renderer = AdvancedPhigrosRenderer(
+                    plugin_dir=Path(__file__).parent,
+                    cache_dir=self.output_dir / "cache",
+                    illustration_path=illust_path,
+                    mode=renderer_mode if renderer_mode != "auto" else None,
+                    image_quality=self.image_quality,
+                    avatar_path=avatar_path
+                )
+                await self.renderer.initialize()
+                logger.info(f"✅ 高级渲染器初始化成功，模式: {self.renderer.get_mode()}")
+            except Exception as e:
+                logger.error(f"❌ 高级渲染器初始化失败: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                self.renderer = None
+        elif self.renderer is None and RENDERER_AVAILABLE and self.enable_renderer:
+            # 回退到旧版渲染器
+            try:
+                illust_path = resolve_illustration_path(Path(__file__).parent, self.illustration_path)
                 self.renderer = PhigrosRenderer(
                     cache_dir=str(self.output_dir / "cache"),
                     illustration_path=str(illust_path),
                     image_quality=self.image_quality
                 )
                 await self.renderer.initialize()
-                logger.info("渲染器初始化成功")
+                logger.info("渲染器初始化成功（旧版）")
             except Exception as e:
                 logger.error(f"渲染器初始化失败: {e}")
                 self.renderer = None
+
+        # 自动更新曲绘（在后台运行，不阻塞初始化）
+        if ILLUSTRATION_UPDATER_AVAILABLE:
+            self.enable_auto_update = self.plugin_config.get("enable_auto_update_illustration", True)
+            if self.enable_auto_update:
+                asyncio.create_task(self._auto_update_illustrations())
+            else:
+                logger.info("⏭️ 曲绘自动更新已禁用，跳过检查")
+
+    async def _auto_update_illustrations(self):
+        """自动更新曲绘（后台任务）"""
+        try:
+            plugin_dir = Path(__file__).parent
+            illust_path = resolve_illustration_path(plugin_dir, self.illustration_path)
+            
+            # 获取代理设置（从配置中读取）
+            proxy = self.plugin_config.get("illustration_update_proxy", "")
+            
+            logger.info("🎨 正在检查曲绘更新...")
+            success, fail, status = await auto_update_illustrations(
+                plugin_dir=plugin_dir,
+                illustration_path=illust_path,
+                proxy=proxy if proxy else None
+            )
+            
+            if success > 0:
+                logger.info(f"🎉 曲绘更新完成！成功下载 {success} 个，失败 {fail} 个")
+            elif "跳过检查" in status:
+                logger.info(f"⏭️ {status}")
+            else:
+                logger.info(f"ℹ️ 曲绘状态: {status}")
+                
+        except Exception as e:
+            logger.warning(f"自动更新曲绘失败: {e}")
 
     async def terminate(self):
         """插件销毁"""
@@ -253,9 +399,18 @@ class PhigrosPlugin(Star):
         return headers
 
     async def _make_request(
-        self, method: str, endpoint: str, params: Optional[Dict] = None, json_data: Optional[Dict] = None
-    ) -> Dict[str, Any]:
-        """发起 HTTP 请求"""
+        self, method: str, endpoint: str, params: Optional[Dict] = None, json_data: Optional[Dict] = None,
+        return_raw: bool = False
+    ) -> Any:
+        """发起 HTTP 请求
+        
+        Args:
+            method: HTTP 方法
+            endpoint: API 端点
+            params: URL 参数
+            json_data: JSON 请求体
+            return_raw: 是否返回原始响应内容（用于图片等非 JSON 响应）
+        """
         if not self.session:
             raise Exception("HTTP 会话未初始化")
 
@@ -280,11 +435,13 @@ class PhigrosPlugin(Star):
                         error_msg = f"请求失败，状态码: {response.status}，响应: {error_text[:200]}"
                     raise Exception(error_msg)
 
+                # 如果请求原始内容，直接返回文本
+                if return_raw:
+                    return await response.text()
+
                 # 成功响应，解析 JSON
                 try:
                     data = await response.json()
-                    if not isinstance(data, dict):
-                        raise Exception(f"响应格式错误: 期望 dict，实际为 {type(data).__name__}")
                     return data
                 except json.JSONDecodeError as e:
                     raise Exception(f"解析响应数据失败: {str(e)}")
@@ -322,6 +479,143 @@ class PhigrosPlugin(Star):
         platform = event.get_platform_name()
         user_id = event.get_sender_id()
         return platform, user_id
+    
+    def _extract_b30_data(self, save_data: Dict) -> Optional[Dict]:
+        """
+        从存档数据中提取 Best30 数据（优化版本）
+        
+        Args:
+            save_data: /save API 返回的存档数据
+            
+        Returns:
+            格式化的 Best30 数据，供渲染器使用
+        """
+        try:
+            # 预编译正则表达式（提升性能）
+            import re
+            html_tag_pattern = re.compile(r'<[^>]+>')
+            
+            def clean_nickname(value: str) -> str:
+                """清理昵称中的 HTML 标签"""
+                if not value or not isinstance(value, str):
+                    return ""
+                return html_tag_pattern.sub('', value).strip()
+
+            def get_nickname(data_dict: Dict) -> str:
+                """智能获取昵称"""
+                for key in ("nickname", "name", "userName", "alias", "displayName"):
+                    value = data_dict.get(key)
+                    if value and isinstance(value, str):
+                        cleaned = clean_nickname(value)
+                        if cleaned:
+                            return cleaned
+                # 最后尝试 selfIntro
+                self_intro = data_dict.get("selfIntro", "")
+                if self_intro and isinstance(self_intro, str):
+                    cleaned = clean_nickname(self_intro)
+                    if cleaned:
+                        return cleaned
+                return ""
+
+            def get_player_id(data_dict: Dict) -> str:
+                """智能获取玩家ID"""
+                for key in ("playerId", "objectId", "id", "userId", "uid"):
+                    value = data_dict.get(key)
+                    if value:
+                        if isinstance(value, str) and value.strip():
+                            return value.strip()
+                        elif isinstance(value, (int, float)):
+                            return str(value)
+                return ""
+
+            # 获取 save 数据
+            save_info = save_data.get("save", {})
+            summary_parsed = save_info.get("summaryParsed", {})
+            user_info = save_info.get("user", {})
+            
+            # 智能获取玩家信息
+            nickname = get_nickname(summary_parsed) or get_nickname(user_info) or "Phigros Player"
+            player_id = get_player_id(summary_parsed) or get_player_id(user_info) or "TapTap User"
+            
+            # 获取其他信息
+            game_progress = save_info.get("game_progress", {})
+            challenge_mode_rank = game_progress.get("challengeModeRank", 0)
+            
+            rks_data = save_data.get("rks", {})
+            rks = rks_data.get("totalRks", 0) if isinstance(rks_data, dict) else (rks_data or 0)
+            
+            gameuser = {
+                "nickname": nickname,
+                "PlayerId": player_id,
+                "rks": rks,
+                "challengeModeRank": challenge_mode_rank,
+                "avatar": user_info.get("avatar", ""),
+            }
+            
+            # 获取成绩记录
+            records_data = rks_data.get("b30Charts", []) if isinstance(rks_data, dict) else []
+            
+            # 快速构建 game_record 查找表
+            game_record_raw = save_info.get("game_record", {})
+            game_record = {}
+            
+            if isinstance(game_record_raw, dict):
+                for song_key, records_list in game_record_raw.items():
+                    if isinstance(records_list, list):
+                        song_name = song_key.split(".")[0] if "." in song_key else song_key
+                        for record_item in records_list:
+                            if isinstance(record_item, dict):
+                                diff = record_item.get("difficulty", "IN")
+                                game_record[f"{song_name}.{diff}"] = record_item
+            
+            # 批量处理成绩记录（使用列表推导式提升性能）
+            scored_records = []
+            for record in records_data:
+                song_id = record.get("songId", "")
+                song_name = song_id.split(".")[0] if "." in song_id else song_id
+                difficulty = record.get("difficulty", "IN")
+                
+                # 查找完整成绩数据
+                full_record = game_record.get(f"{song_name}.{difficulty}")
+                
+                if isinstance(full_record, dict):
+                    scored_records.append({
+                        "song": song_name,
+                        "song_id": song_id,
+                        "artist": "",
+                        "difficulty": difficulty,
+                        "score": full_record.get("score", 0),
+                        "acc": full_record.get("accuracy", 0),
+                        "rks": record.get("rks", 0),
+                        "fc": full_record.get("is_full_combo", False),
+                        "illustration_url": f"https://somnia.xtower.site/illustrationLowRes/{song_name}.png"
+                    })
+                else:
+                    scored_records.append({
+                        "song": song_name,
+                        "song_id": song_id,
+                        "artist": "",
+                        "difficulty": difficulty,
+                        "score": 0,
+                        "acc": 0,
+                        "rks": record.get("rks", 0),
+                        "fc": False,
+                        "illustration_url": f"https://somnia.xtower.site/illustrationLowRes/{song_name}.png"
+                    })
+            
+            # 按 RKS 排序并取前30
+            scored_records.sort(key=lambda x: x["rks"], reverse=True)
+            
+            logger.info(f"✅ Best30 提取完成: {len(scored_records)} 条记录, 玩家: {nickname}, RKS: {rks:.4f}")
+            
+            return {
+                "gameuser": gameuser,
+                "records": scored_records[:30]
+            }
+            
+        except Exception as e:
+            logger.error(f"提取 Best30 数据失败: {e}")
+            return None
 
     # ==================== 命令: 绑定用户数据 ====================
     @filter.command("phi_bind")
@@ -403,11 +697,34 @@ class PhigrosPlugin(Star):
             qr_path = self.output_dir / "taptap_qr.png"
             if qr_path.exists():
                 from astrbot.api.message_components import Image
-                yield event.chain_result([
-                    Plain("📱 请使用 TapTap APP 扫描下方二维码登录:\n"),
-                    Image(file=str(qr_path)),
-                    Plain("⏰ 二维码有效期 2 分钟，请在手机上确认登录...\n⏳ 等待扫码中...")
-                ])
+                try:
+                    # 尝试发送图片（兼容不同平台）
+                    yield event.chain_result([
+                        Plain("📱 请使用 TapTap APP 扫描下方二维码登录:\n"),
+                        Image(file=str(qr_path)),
+                        Plain("⏰ 二维码有效期 2 分钟，请在手机上确认登录...\n⏳ 等待扫码中...")
+                    ])
+                except Exception as e:
+                    logger.warning(f"发送二维码图片失败: {e}，尝试使用 base64 方式")
+                    # 如果文件方式失败，尝试使用 base64
+                    try:
+                        import base64
+                        with open(qr_path, 'rb') as f:
+                            img_base64 = base64.b64encode(f.read()).decode()
+                        yield event.chain_result([
+                            Plain("📱 请使用 TapTap APP 扫描下方二维码登录:\n"),
+                            Image.fromBase64(img_base64),
+                            Plain("⏰ 二维码有效期 2 分钟，请在手机上确认登录...\n⏳ 等待扫码中...")
+                        ])
+                    except Exception as e2:
+                        logger.error(f"Base64 方式也失败: {e2}")
+                        # 最后回退：只发送链接
+                        yield event.plain_result(
+                            f"📱 请使用 TapTap APP 扫描登录\n"
+                            f"💡 如果看不到二维码，请访问:\n"
+                            f"https://lilith.xtower.site/\n"
+                            f"⏰ 二维码有效期 2 分钟"
+                        )
             else:
                 yield event.plain_result("❌ 二维码文件未生成，请检查日志")
                 return
@@ -521,13 +838,13 @@ class PhigrosPlugin(Star):
         except Exception as e:
             yield event.plain_result(f"❌ 获取存档失败: {str(e)}")
 
-    # ==================== 命令: 获取 Best30 ====================
+    # ==================== 命令: 获取 Best30 (API SVG版本) ====================
     @filter.command("phi_b30")
-    async def get_best30(self, event: AstrMessageEvent, session_token: str = None, taptap_version: str = None):
+    async def get_best30(self, event: AstrMessageEvent, session_token: str = None, taptap_version: str = None, theme: str = "black"):
         """
-        获取 Best 30 成绩图
-        用法: /phi_b30 [sessionToken] [taptapVersion]
-        示例: /phi_b30 或 /phi_b30 your_token cn
+        获取 Best 30 成绩图（API直接生成SVG）
+        用法: /phi_b30 [sessionToken] [taptapVersion] [theme]
+        示例: /phi_b30 或 /phi_b30 your_token cn black
         提示: 如果已绑定账号，可以不填 sessionToken
         """
         try:
@@ -552,95 +869,191 @@ class PhigrosPlugin(Star):
             if taptap_version is None:
                 taptap_version = self.default_taptap_version
             
-            yield event.plain_result("⏳ 正在获取 Best30 数据...")
+            # 验证主题参数
+            if theme not in ["black", "white"]:
+                theme = "black"
             
-            data = await self._make_request(
-                method="POST",
-                endpoint="/save",
-                params={"calculate_rks": "true"},
-                json_data={"sessionToken": session_token, "taptapVersion": taptap_version},
-            )
+            yield event.plain_result("⏳ 正在查询 Best30 数据...")
 
-            # 使用 Best30 渲染
-            async for result in self._render_and_send(
-                event, 
-                self.renderer.render_best30 if self.renderer else None,
-                data, 
-                f"b30_{session_token[:8]}.png"
-            ):
-                yield result
+            # 首先尝试使用 /save API 获取数据，然后本地渲染
+            render_success = False
+            output_path = self.output_dir / f"b30_{session_token[:8]}.png"
+
+            if hasattr(self, 'renderer') and self.renderer:
+                try:
+                    # 调用 /save API 获取存档数据
+                    save_data = await self._make_request(
+                        method="POST",
+                        endpoint="/save",
+                        params={"calculate_rks": "true"},
+                        json_data={
+                            "sessionToken": session_token,
+                            "taptapVersion": taptap_version
+                        }
+                    )
+
+                    yield event.plain_result("🎨 正在渲染 Best30 图片...")
+
+                    # 提取 Best30 数据
+                    b30_data = self._extract_b30_data(save_data)
+
+                    if b30_data:
+                        render_success = await self.renderer.render_b30(b30_data, output_path)
+                    else:
+                        logger.warning("⚠️ 无法提取 Best30 数据")
+                        
+                except Exception as e:
+                    logger.error(f"使用渲染器生成图片失败: {e}")
+                    render_success = False
+            
+            # 如果渲染器失败，回退到 SVG 转换
+            convert_success = False
+            if not render_success:
+                logger.info("🔄 使用 SVG 转换作为回退方案")
+                # 调用 API 获取 SVG
+                svg_data = await self._make_request(
+                    method="POST",
+                    endpoint="/image/bn",
+                    params={"format": "svg"},
+                    json_data={
+                        "sessionToken": session_token,
+                        "taptapVersion": taptap_version,
+                        "n": 30,
+                        "theme": theme
+                    },
+                    return_raw=True
+                )
+                
+                # 保存 SVG 文件
+                svg_path = self.output_dir / f"b30_{session_token[:8]}.svg"
+                with open(svg_path, 'w', encoding='utf-8') as f:
+                    f.write(svg_data)
+                
+                # 将 SVG 转换为 PNG
+                if SVG_CONVERTER_AVAILABLE:
+                    try:
+                        plugin_dir = str(Path(__file__).parent)
+                        illust_path = str(Path(__file__).parent / self.illustration_path.replace("./", ""))
+                        convert_success = convert_svg_to_png(
+                            str(svg_path),
+                            str(output_path),
+                            illustration_path=illust_path,
+                            plugin_dir=plugin_dir
+                        )
+                    except Exception as e:
+                        logger.error(f"SVG 转换失败: {e}")
+            
+            # 发送图片或提示
+            from astrbot.api.message_components import Image
+            if render_success or convert_success:
+                yield event.chain_result([
+                    Plain(f"🎵 Best30 成绩图 ({theme}主题)\n"),
+                    Image(file=str(output_path))
+                ])
+            else:
+                # 转换失败
+                yield event.plain_result(
+                    f"❌ 生成 Best30 成绩图失败\n"
+                    f"💡 请检查日志了解详细错误信息"
+                )
 
         except Exception as e:
             yield event.plain_result(f"❌ 获取 Best30 失败: {str(e)}")
 
-    # ==================== 命令: 获取 BestN SVG 图片 (API 版本) ====================
-    @filter.command("phi_bestn")
-    async def get_bestn_svg(self, event: AstrMessageEvent, n: int = 27, theme: str = "black", session_token: str = None, taptap_version: str = None):
+    # ==================== 命令: 获取 BestN 图片 (API 版本) ====================
+    @filter.command("phi_bn")
+    async def get_bestn_image(self, event: AstrMessageEvent, n: int = 27, theme: str = "black"):
         """
-        获取 BestN SVG 成绩图（API 直接返回）
-        用法: /phi_bestn [n] [theme] [sessionToken] [taptapVersion]
-        示例: /phi_bestn 27 black
-        提示: n 建议 27，theme 可选 black 或 white
+        获取 BestN 成绩图（API 直接生成）
+        用法: /phi_bn [n] [theme]
+        示例: /phi_bn 27 black
+        参数:
+          n: 成绩数量，建议 27 (默认)
+          theme: 主题，black 或 white (默认 black)
+        注意: 需要先绑定账号或扫码登录
         """
         try:
-            # 如果没有提供 session_token，尝试从绑定数据获取
-            if session_token is None:
-                platform, user_id = self._get_user_id(event)
-                user_data = self.user_data.get_user_data(platform, user_id)
-                
-                if user_data is None:
-                    yield event.plain_result(
-                        "❌ 未提供 sessionToken 且未绑定账号\n"
-                        "💡 请使用 /phi_qrlogin 扫码登录\n"
-                        "或使用 /phi_bind <token> 绑定账号"
+            # 从绑定数据获取
+            platform, user_id = self._get_user_id(event)
+            user_data = self.user_data.get_user_data(platform, user_id)
+            
+            if user_data is None:
+                yield event.plain_result(
+                    "❌ 未绑定账号\n"
+                    "💡 请使用 /phi_qrlogin 扫码登录\n"
+                    "或使用 /phi_bind <token> 绑定账号"
+                )
+                return
+            
+            session_token = user_data["session_token"]
+            taptap_version = user_data.get("taptap_version", self.default_taptap_version)
+            
+            # 验证参数
+            if n < 1 or n > 50:
+                yield event.plain_result("❌ n 的范围应为 1-50")
+                return
+            
+            if theme not in ["black", "white"]:
+                theme = "black"
+            
+            yield event.plain_result(f"⏳ 正在生成 Best{n} 成绩图...")
+            
+            # 调用 API 获取 SVG（返回原始文本）
+            svg_data = await self._make_request(
+                method="POST",
+                endpoint="/image/bn",
+                params={"format": "svg"},
+                json_data={
+                    "sessionToken": session_token,
+                    "taptapVersion": taptap_version,
+                    "n": n,
+                    "theme": theme
+                },
+                return_raw=True
+            )
+            
+            # 保存 SVG 文件
+            svg_path = self.output_dir / f"bn_{session_token[:8]}_{n}.svg"
+            with open(svg_path, 'w', encoding='utf-8') as f:
+                f.write(svg_data)
+            
+            # 将 SVG 转换为 PNG（QQ 不支持 SVG）
+            output_path = self.output_dir / f"bn_{session_token[:8]}_{n}.png"
+            convert_success = False
+            
+            if SVG_CONVERTER_AVAILABLE:
+                try:
+                    # 传递曲绘路径和插件目录
+                    plugin_dir = str(Path(__file__).parent)
+                    illust_path = str(Path(__file__).parent / self.illustration_path.replace("./", ""))
+                    convert_success = convert_svg_to_png(
+                        str(svg_path),
+                        str(output_path),
+                        illustration_path=illust_path,
+                        plugin_dir=plugin_dir
                     )
-                    return
-                
-                session_token = user_data["session_token"]
-                if taptap_version is None:
-                    taptap_version = user_data.get("taptap_version", self.default_taptap_version)
-            
-            # 使用配置的默认值
-            if taptap_version is None:
-                taptap_version = self.default_taptap_version
-            
-            yield event.plain_result(f"⏳ 正在获取 Best{n} SVG 图片...")
-            
-            # 调用 API 获取 SVG
-            url = f"{BASE_URL}/image/bn"
-            params = {"format": "svg"}
-            json_data = {
-                "sessionToken": session_token,
-                "taptapVersion": taptap_version,
-                "n": n,
-                "theme": theme
-            }
-            
-            async with self.session.post(
-                url=url,
-                headers=self._get_headers(),
-                params=params,
-                json=json_data
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise Exception(f"获取 BestN 图片失败: HTTP {response.status}")
-                
-                # 获取 SVG 数据
-                svg_data = await response.text()
-                
-                # 保存 SVG 文件
-                output_path = self.output_dir / f"bestn_{session_token[:8]}_{n}.svg"
-                with open(output_path, 'w', encoding='utf-8') as f:
-                    f.write(svg_data)
-                
-                # 发送 SVG 图片
-                from astrbot.api.message_components import Image
+                except Exception as e:
+                    logger.error(f"SVG 转换失败: {e}")
+            else:
+                logger.warning("SVG 转换器未加载")
+
+            # 发送图片或提示
+            from astrbot.api.message_components import Image
+            if convert_success:
                 yield event.chain_result([
-                    Plain(f"🎨 Best{n} 成绩图 ({theme}主题)\n"),
+                    Plain(f"🎵 Best{n} 成绩图 ({theme}主题)\n"),
                     Image(file=str(output_path))
                 ])
-                
+            else:
+                # 转换失败，提示用户 SVG 文件位置
+                converter = get_converter() if SVG_CONVERTER_AVAILABLE else None
+                help_text = converter.install_help() if converter else "请安装 svglib: pip install svglib reportlab"
+                yield event.plain_result(
+                    f"⚠️ Best{n} 成绩图已保存为 SVG 格式\n"
+                    f"📁 文件位置: {svg_path}\n"
+                    f"💡 {help_text}"
+                )
+            
         except Exception as e:
             yield event.plain_result(f"❌ 获取 BestN 图片失败: {str(e)}")
 
@@ -732,13 +1145,17 @@ class PhigrosPlugin(Star):
 
     # ==================== 命令: 按排名区间查询 ====================
     @filter.command("phi_rank")
-    async def get_by_rank(self, event: AstrMessageEvent, start: int, end: Optional[int] = None):
+    async def get_by_rank(self, event: AstrMessageEvent, start: int = None, end: Optional[int] = None):
         """
         按排名区间查询玩家
         用法: /phi_rank <start> [end]
         示例: /phi_rank 1 10 或 /phi_rank 100
         """
         try:
+            # 如果没有提供start，默认查询前10名
+            if start is None:
+                start = 1
+                
             params = {"start": start}
             if end:
                 params["end"] = end
@@ -827,7 +1244,122 @@ class PhigrosPlugin(Star):
         except Exception as e:
             yield event.plain_result(f"❌ 搜索曲目失败: {str(e)}")
 
-    # ==================== 命令: 新曲速递 ====================
+    # ==================== 命令: 获取单曲成绩图 ====================
+    @filter.command("phi_song")
+    async def get_song_image(self, event: AstrMessageEvent, song_id: str):
+        """
+        获取指定歌曲的成绩图
+        用法: /phi_song <歌曲ID>
+        示例: /phi_song 曲名.曲师
+        提示: 使用 /phi_search 搜索歌曲获取准确的歌曲ID
+        注意: 需要先绑定账号或扫码登录
+        """
+        try:
+            # 从绑定数据获取
+            platform, user_id = self._get_user_id(event)
+            user_data = self.user_data.get_user_data(platform, user_id)
+            
+            if user_data is None:
+                yield event.plain_result(
+                    "❌ 未绑定账号\n"
+                    "💡 请使用 /phi_qrlogin 扫码登录\n"
+                    "或使用 /phi_bind <token> 绑定账号"
+                )
+                return
+            
+            session_token = user_data["session_token"]
+            taptap_version = user_data.get("taptap_version", self.default_taptap_version)
+            
+            if not song_id:
+                yield event.plain_result(
+                    "❌ 请提供歌曲ID\n"
+                    "💡 使用 /phi_search <关键词> 搜索歌曲获取ID\n"
+                    "示例: /phi_song 曲名.曲师"
+                )
+                return
+            
+            yield event.plain_result(f"⏳ 正在生成歌曲成绩图...")
+            
+            # 调用 API 获取 SVG（返回原始文本）
+            svg_data = await self._make_request(
+                method="POST",
+                endpoint="/image/song",
+                params={"format": "svg"},
+                json_data={
+                    "sessionToken": session_token,
+                    "taptapVersion": taptap_version,
+                    "song": song_id
+                },
+                return_raw=True
+            )
+            
+            # 尝试解析为 JSON（检查是否是候选列表）
+            try:
+                json_data = json.loads(svg_data)
+                if isinstance(json_data, dict) and "candidates" in json_data:
+                    candidates = json_data.get("candidates", [])
+                    if candidates:
+                        msg_parts = ["🎵 找到多个匹配的歌曲，请使用准确的ID:\n\n"]
+                        for i, candidate in enumerate(candidates[:10], 1):
+                            cid = candidate.get("id", "未知")
+                            name = candidate.get("name", "未知")
+                            msg_parts.append(f"{i}. {name}\n")
+                            msg_parts.append(f"   ID: {cid}\n\n")
+                        yield event.plain_result("".join(msg_parts))
+                    else:
+                        yield event.plain_result("❌ 未找到匹配的歌曲")
+                    return
+            except json.JSONDecodeError:
+                # 不是 JSON，说明是 SVG 数据，继续处理
+                pass
+            
+            # 保存 SVG 文件
+            safe_song_id = song_id.replace(".", "_").replace("/", "_")[:50]
+            svg_path = self.output_dir / f"song_{safe_song_id}.svg"
+            with open(svg_path, 'w', encoding='utf-8') as f:
+                f.write(svg_data)
+            
+            # 将 SVG 转换为 PNG（QQ 不支持 SVG）
+            output_path = self.output_dir / f"song_{safe_song_id}.png"
+            convert_success = False
+            
+            if SVG_CONVERTER_AVAILABLE:
+                try:
+                    # 传递曲绘路径和插件目录
+                    plugin_dir = str(Path(__file__).parent)
+                    illust_path = str(Path(__file__).parent / self.illustration_path.replace("./", ""))
+                    convert_success = convert_svg_to_png(
+                        str(svg_path),
+                        str(output_path),
+                        illustration_path=illust_path,
+                        plugin_dir=plugin_dir
+                    )
+                except Exception as e:
+                    logger.error(f"SVG 转换失败: {e}")
+            else:
+                logger.warning("SVG 转换器未加载")
+
+            # 发送图片或提示
+            from astrbot.api.message_components import Image
+            if convert_success:
+                yield event.chain_result([
+                    Plain(f"🎵 歌曲成绩图\n"),
+                    Image(file=str(output_path))
+                ])
+            else:
+                # 转换失败，提示用户 SVG 文件位置
+                converter = get_converter() if SVG_CONVERTER_AVAILABLE else None
+                help_text = converter.install_help() if converter else "请安装 svglib: pip install svglib reportlab"
+                yield event.plain_result(
+                    f"⚠️ 歌曲成绩图已保存为 SVG 格式\n"
+                    f"📁 文件位置: {svg_path}\n"
+                    f"💡 {help_text}"
+                )
+            
+        except Exception as e:
+            yield event.plain_result(f"❌ 获取歌曲成绩图失败: {str(e)}")
+
+    # ==================== 命令: 获取新曲速递 ====================
     @filter.command("phi_updates")
     async def get_updates(self, event: AstrMessageEvent, count: int = 3):
         """
@@ -838,7 +1370,7 @@ class PhigrosPlugin(Star):
         try:
             data = await self._make_request(
                 method="GET",
-                endpoint="/open/song-updates",
+                endpoint="/song-updates",
             )
 
             if not isinstance(data, list):
@@ -892,42 +1424,54 @@ class PhigrosPlugin(Star):
    解绑 Phigros 账号
 
 【数据查询】
-4. /phi_b30 [sessionToken] [taptapVersion]
-   获取 Best 30 成绩图（本地渲染，带曲绘）⭐推荐
-   示例: /phi_b30 或 /phi_b30 your_token cn
+4. /phi_b30 [sessionToken] [taptapVersion] [theme]
+   获取 Best 30 成绩图（API直接生成SVG）⭐推荐
+   示例: /phi_b30 或 /phi_b30 your_token cn black
+   参数: theme=black/white (默认 black)
    💡 已绑定账号可直接使用 /phi_b30
 
-5. /phi_bestn [n] [theme] [sessionToken] [taptapVersion]
-   获取 BestN SVG 成绩图（API 直接返回）🆕
-   示例: /phi_bestn 27 black
-   💡 n 建议 27，theme 可选 black/white
+5. /phi_bn [n] [theme]
+   获取 BestN 成绩图（API直接生成SVG）🆕
+   示例: /phi_bn 27 black
+   参数: n=成绩数量(1-50), theme=black/white
+   💡 已绑定账号可直接使用 /phi_bn
 
-6. /phi_save [sessionToken] [taptapVersion]
+6. /phi_song <歌曲ID>
+   获取单曲成绩图（API直接生成）🆕
+   示例: /phi_song 曲名.曲师
+   💡 先用 /phi_search 搜索获取准确ID
+
+7. /phi_save [sessionToken] [taptapVersion]
    获取用户存档数据（带曲绘图片）
    示例: /phi_save 或 /phi_save your_token cn
    💡 已绑定账号可直接使用 /phi_save
 
-7. /phi_rks_history [sessionToken] [limit]
+8. /phi_rks_history [sessionToken] [limit]
    查询 RKS 历史变化
    示例: /phi_rks_history 或 /phi_rks_history your_token 10
    💡 已绑定账号可直接使用 /phi_rks_history
 
-8. /phi_leaderboard
+9. /phi_leaderboard
    获取 RKS 排行榜 Top（带图片）
 
-9. /phi_rank <start> [end]
-   按排名区间查询玩家
-   示例: /phi_rank 1 10
+10. /phi_rank <start> [end]
+    按排名区间查询玩家
+    示例: /phi_rank 1 10
 
-10. /phi_search <关键词> [limit]
+11. /phi_search <关键词> [limit]
     搜索曲目信息（带曲绘图片）
     示例: /phi_search Originally 5
 
-11. /phi_updates [count]
+12. /phi_updates [count]
     获取新曲速递
     示例: /phi_updates 3
 
-12. /phi_help
+13. /phi_update_illust [proxy]
+    手动更新曲绘（从 GitHub 自动下载）
+    示例: /phi_update_illust
+    示例: /phi_update_illust http://127.0.0.1:7890
+
+14. /phi_help
     显示此帮助信息
 
 💡 使用提示:
@@ -946,3 +1490,39 @@ class PhigrosPlugin(Star):
 • default_history_limit - 默认历史记录数量
 """
         yield event.plain_result(help_text)
+
+    @filter.command("phi_update_illust")
+    async def phi_update_illust(self, event: AstrMessageEvent, proxy: str = ""):
+        """手动更新曲绘"""
+        if not ILLUSTRATION_UPDATER_AVAILABLE:
+            yield event.plain_result("❌ 曲绘更新器未加载，无法更新")
+            return
+
+        yield event.plain_result("🎨 开始检查曲绘更新...")
+
+        try:
+            plugin_dir = Path(__file__).parent
+            illust_path = plugin_dir / self.illustration_path.replace("./", "")
+
+            # 使用提供的代理或配置中的代理
+            proxy_url = proxy if proxy else self.plugin_config.get("illustration_update_proxy", "")
+
+            success, fail, status = await auto_update_illustrations(
+                plugin_dir=plugin_dir,
+                illustration_path=illust_path,
+                proxy=proxy_url if proxy_url else None
+            )
+
+            if success > 0:
+                result = f"🎉 曲绘更新完成！\n✅ 成功下载: {success} 个\n❌ 失败: {fail} 个"
+                if status:
+                    result += f"\n📋 {status}"
+            elif "跳过检查" in status:
+                result = f"⏭️ {status}\n💡 使用 `/phi_update_illust force` 强制更新"
+            else:
+                result = f"ℹ️ {status}"
+
+            yield event.plain_result(result)
+
+        except Exception as e:
+            yield event.plain_result(f"❌ 更新失败: {e}")

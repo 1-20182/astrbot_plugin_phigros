@@ -18,7 +18,9 @@
 | 🎨 **美图生成** | 自动生成带曲绘的漂亮图片，发朋友圈必备！ |
 | 🔗 **账号绑定** | 绑定一次，永久免输 token！ |
 | 📱 **扫码登录** | TapTap 扫码一键登录，超方便！ |
-| 🎯 **Best30** | 生成 Best30 成绩图，看看你最强的 30 首歌！ |
+| 🎯 **Best30** | 生成 Best30 成绩图（极速渲染，带发光效果！）✨ |
+| 🎯 **BestN** | 生成 BestN 成绩图，自定义数量（API直接生成SVG） |
+| 🎵 **单曲成绩** | 生成指定歌曲的成绩图（API直接生成SVG） |
 
 ---
 
@@ -50,11 +52,14 @@ pip install -r requirements.txt
 ```
 astrbot_plugin_phigros/
 ├── 📄 main.py                 # 我的大脑（主代码）
-├── 📄 renderer.py             # 我的画笔（渲染器）
-├── 📄 taptap_login_api.py     # 扫码登录小助手（API版本）
+├── 📄 utils.py                # 工具箱（公共函数）
+├── 📄 config.py               # 配置表（常量定义）
+├── 📄 phi_style_renderer.py   # 高级画笔（极速渲染器）
+├── 📄 renderer.py             # 旧画笔（备用渲染器）
+├── 📄 taptap_login_api.py     # 扫码登录小助手
 ├── 📄 metadata.yaml           # 我的身份证
 ├── 📄 requirements.txt        # 我的零食清单（依赖）
-├── 📄 _conf_schema.json       # 我的配置表
+├── 📄 _conf_schema.json       # 配置表
 ├── 📄 install.py              # 自动安装小助手
 ├── 📄 README.md               # 就是你现在看的这个！
 ├── 🎨 ILLUSTRATION/           # 曲绘收藏夹
@@ -64,17 +69,14 @@ astrbot_plugin_phigros/
 │   ├── 📂 data/               # 歌曲数据
 │   │   ├── info.csv           # 歌曲基础信息
 │   │   ├── difficulty.csv     # 定数表
-│   │   ├── nicklist.yaml      # 昵称对照
-│   │   └── ...
+│   │   └── nicklist.yaml      # 昵称对照
 │   ├── 📂 font/               # 字体文件
-│   │   └── phi.ttf            # Phigros 专用字体
 │   └── 📂 img/                # 图片资源
 │       ├── 📂 rating/         # 评级图标
 │       ├── 📂 logo/           # Logo图标
 │       └── 📂 other/          # 其他图标
 └── 📂 output/                 # 作品展示墙
     ├── 📄 user_data.json      # 用户绑定数据
-    ├── 📄 taptap_qr.png       # 临时二维码
     └── 📂 cache/              # 临时小仓库
 ```
 
@@ -151,9 +153,11 @@ astrbot_plugin_phigros/
 | `/phi_qrlogin` | 扫码登录⭐ | `/phi_qrlogin cn` |
 | `/phi_bind` | 手动绑定 | `/phi_bind your_token cn` |
 | `/phi_unbind` | 解绑账号 | `/phi_unbind` |
-| `/phi_b30` | Best30 成绩图⭐ | `/phi_b30` 或 `/phi_b30 token cn` |
-| `/phi_save` | 查存档（带美图） | `/phi_save` 或 `/phi_save token cn` |
-| `/phi_rks_history` | RKS 历史 | `/phi_rks_history` 或 `/phi_rks_history token 10` |
+| `/phi_b30` | Best30 成绩图（极速渲染！）⭐ | `/phi_b30` |
+| `/phi_bn` | BestN 成绩图（API SVG） | `/phi_bn 27 black` |
+| `/phi_song` | 单曲成绩图 | `/phi_song 曲名.曲师` |
+| `/phi_save` | 查存档（带美图） | `/phi_save` |
+| `/phi_rks_history` | RKS 历史 | `/phi_rks_history 10` |
 | `/phi_leaderboard` | 排行榜（带图） | `/phi_leaderboard` |
 | `/phi_rank` | 查排名 | `/phi_rank 1 10` |
 | `/phi_search` | 搜歌（带图） | `/phi_search Glaciaxion` |
@@ -163,7 +167,7 @@ astrbot_plugin_phigros/
 ### 💡 使用小技巧
 
 - **扫码登录最方便**，不用到处找 token！
-- **绑定后**直接用 `/phi_b30` 生成 Best30 成绩图！
+- **绑定后**直接用 `/phi_b30` 生成 Best30 成绩图，嗖嗖快！⚡
 - **没绑定**也可以临时查询：`/phi_b30 your_token cn`
 - `taptapVersion` 选 `cn` (国服) 或 `global` (国际版)
 
@@ -182,6 +186,8 @@ astrbot_plugin_phigros/
 | `default_taptap_version` | 字符串 | cn | 默认查国服 |
 | `default_search_limit` | 数字 | 5 | 搜歌默认显示几条 |
 | `default_history_limit` | 数字 | 10 | RKS历史默认显示几条 |
+| `enable_auto_update_illustration` | 开关 | 关❌ | 自动更新曲绘 |
+| `illustration_update_proxy` | 字符串 | 空 | 代理地址 |
 
 ---
 
@@ -222,39 +228,64 @@ astrbot_plugin_phigros/
 | 🌐 **Phigros Query 官网** | https://lilith.xtower.site/ |
 | 👨‍💻 **Phigros Query GitHub** | https://github.com/Sczr0 |
 | 🎮 **phi-plugin** | https://github.com/Catrong/phi-plugin |
-| 🎨 **Phigros 曲绘仓库** | https://github.com/NanLiang-Works-Inc/Phigros_Resource?tab=readme-ov-file |
+| 🎨 **Phigros 曲绘仓库** | https://github.com/NanLiang-Works-Inc/Phigros_Resource |
 
 ---
 
 ## 📝 更新日记
 
+### v1.9.0 - 极速渲染大升级！🚀
+
+**嗖嗖嗖~ 渲染速度飞起来啦！** ⚡
+
+- 🚀 **多线程并行加载** - 4个线程同时加载30张曲绘，速度提升300%！
+- 💾 **智能缓存系统** - 处理好的曲绘都缓存起来，下次用直接拿，超快！
+- 🎨 **快速渲染模式** - 简化绘制流程，保留核心效果，渲染时间减半！
+- 🖼️ **背景图缓存** - 模糊处理好的背景图直接复用，不用每次都重新搞
+- ⚡ **数据提取优化** - 去掉繁琐的日志，代码跑得飞快~
+- 🐧 **跨平台优化** - Ubuntu、Debian、CentOS 都能愉快玩耍啦！
+
+### v1.8.0 - 发光大更新！✨
+
+**bling bling 的效果来啦！** 💫
+
+- ✨ **发光文字效果** - 歌曲信息、底部标识都加上了超酷的淡蓝色发光！
+- 🎖️ **评级系统** - 自动计算并显示 φ/V/S/A/B/C/F 评级！
+  - φ (Phi)：满分 1000000 才能拿到哦～超稀有！
+  - V (Full Combo)：FC 玩家的专属徽章，超帅！
+- 🎨 **曲绘匹配优化** - 三级匹配策略，再也不怕找不到曲绘啦！
+- 🖼️ **背景图支持** - 使用自定义背景，还能模糊+暗化，超有氛围感~
+
+### v1.7.0 - 曲绘自动更新来啦！
+
+**再也不用到处找曲绘了！** 🎨
+
+- ✅ **曲绘自动更新** - 自动从 GitHub 下载最新曲绘
+- ✅ **增量更新** - 只下载新文件，超省流量！
+- ✅ **代理支持** - 国内也能愉快下载
+
+### v1.6.0 - SVG 转换大升级！
+- ✅ **纯 Python SVG 转换器** - 跨平台支持！
+- ✅ **本地曲绘自动加载** - 自动匹配并显示本地曲绘
+- ✅ **智能字体加载** - 自动检测系统字体
+
+### v1.5.0 - Best30 改用 API SVG！
+- ✅ `/phi_b30` 命令改为调用 API 直接生成 SVG
+
+### v1.4.0 - API 文档同步更新！
+- ✅ 同步更新 Phigros Query 开放平台 API
+
 ### v1.3.0 - Best30 来啦！
-- ✅ 新增 Best30 成绩图功能（`/phi_b30`）
-- ✅ 自动生成最美的 30 首歌曲成绩图
-- ✅ 支持排名显示（金银铜牌）
+- ✅ 新增 Best30 成绩图功能
 
-### v1.4.0 - API 版扫码登录！
+### v1.2.0 - API 版扫码登录！
 - ✅ 使用 Phigros Query API 实现扫码登录
-- ✅ 无需 Playwright，更轻量快速！
-- ✅ 二维码有效期 2 分钟
-
-### v1.2.0 - 扫码登录来啦！
-- ✅ 新增 TapTap 扫码登录功能（`/phi_qrlogin`）
-- ✅ 自动获取 sessionToken，超方便！
-- ✅ 二维码有效期 2 分钟
 
 ### v1.1.0 - 绑定功能来啦！
-- ✅ 新增账号绑定功能（`/phi_bind` / `/phi_unbind`）
-- ✅ 绑定后 `/phi_save` 和 `/phi_rks_history` 免输 token
-- ✅ 重构渲染器，图片更美观
-- ✅ 添加资源文件（歌曲数据、字体、图标）
-- ✅ 文字大小根据图片尺寸自动缩放
+- ✅ 新增账号绑定功能
 
 ### v1.0.0 - 初次见面！
 - ✅ 出生啦！基础功能全都有
-- ✅ 能生成美美的图片
-- ✅ 支持曲绘显示
-- ✅ 支持 WebUI 配置
 
 ---
 
@@ -274,7 +305,9 @@ MIT License - 随便用，但出了问题别找我哦（逃）
 
 ### 🎵 打歌快乐，RKS 飞涨！🎵
 
-*——来自空间站「塔弦」的 Phigros Query 插件*
+*——来自空间站「塔弦」的 Phigros Query插件*
+
+**Made with ❤️ by 飞翔的死猪**
 
 **[⬆ 回到顶部](#-phigros-query-插件)**
 

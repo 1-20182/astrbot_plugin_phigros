@@ -122,20 +122,27 @@ class TapTapLoginManagerAPI:
                 # 使用 verificationUrl 生成二维码图片（更可靠）
                 if QRCODE_AVAILABLE and verification_url:
                     logger.info("使用 qrcode 库生成二维码图片")
-                    qr = qrcode.QRCode(
-                        version=1,
-                        error_correction=qrcode.constants.ERROR_CORRECT_H,
-                        box_size=10,
-                        border=4,
-                    )
-                    qr.add_data(verification_url)
-                    qr.make(fit=True)
-                    
-                    # 生成图片
-                    img = qr.make_image(fill_color="black", back_color="white")
-                    img.save(self.qr_code_path)
-                    logger.info(f"二维码已保存到: {self.qr_code_path}")
-                else:
+                    try:
+                        qr = qrcode.QRCode(
+                            version=1,
+                            error_correction=qrcode.constants.ERROR_CORRECT_H,
+                            box_size=10,
+                            border=4,
+                        )
+                        qr.add_data(verification_url)
+                        qr.make(fit=True)
+                        
+                        # 生成图片
+                        img = qr.make_image(fill_color="black", back_color="white")
+                        # 确保目录存在
+                        self.qr_code_path.parent.mkdir(parents=True, exist_ok=True)
+                        img.save(self.qr_code_path)
+                        logger.info(f"二维码已保存到: {self.qr_code_path}")
+                    except Exception as e:
+                        logger.error(f"使用 qrcode 库生成失败: {e}，回退到 base64 方式")
+                        QRCODE_AVAILABLE = False
+                
+                if not QRCODE_AVAILABLE or not verification_url:
                     # 回退：使用 API 返回的 base64 数据
                     logger.info("使用 API 返回的 base64 数据")
                     
@@ -150,8 +157,11 @@ class TapTapLoginManagerAPI:
                     
                     # 保存二维码图片
                     qr_data = base64.b64decode(qrcode_base64)
+                    # 确保目录存在
+                    self.qr_code_path.parent.mkdir(parents=True, exist_ok=True)
                     with open(self.qr_code_path, 'wb') as f:
                         f.write(qr_data)
+                    logger.info(f"二维码已保存到: {self.qr_code_path}")
 
                 self._current_status = LoginStatus.QR_READY
                 return qrcode_base64

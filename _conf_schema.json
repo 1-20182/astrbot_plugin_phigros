@@ -46,5 +46,24 @@
     "hint": "RKS 历史查询时默认返回的记录数量",
     "min": 1,
     "max": 50
+  },
+  "enable_auto_update_illustration": {
+    "type": "bool",
+    "default": true,
+    "description": "启用曲绘自动更新",
+    "hint": "是否自动从 GitHub 检查并下载最新曲绘（首次运行或每7天检查一次）"
+  },
+  "illustration_update_proxy": {
+    "type": "string",
+    "default": "",
+    "description": "曲绘更新代理地址",
+    "hint": "如果无法直接访问 GitHub，请填写代理地址，如: http://127.0.0.1:7890"
+  },
+  "renderer_mode": {
+    "type": "string",
+    "default": "auto",
+    "description": "渲染模式",
+    "hint": "选择图片渲染模式: auto(自动选择最佳), phi_style(Phi-Plugin风格,推荐), playwright(HTML+浏览器), html2pil(HTML+Pillow), pillow(原生Pillow)",
+    "options": ["auto", "phi_style", "playwright", "html2pil", "pillow"]
   }
 }

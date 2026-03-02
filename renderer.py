@@ -85,13 +85,29 @@ class PhigrosRenderer:
         if cache_key in self._font_cache:
             return self._font_cache[cache_key]
         
-        # 尝试加载系统字体
+        # 尝试加载系统字体（跨平台支持）
         font_paths = [
-            "C:/Windows/Fonts/msyh.ttc",
-            "C:/Windows/Fonts/simhei.ttf",
-            "C:/Windows/Fonts/msyhbd.ttc",
-            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-            "/System/Library/Fonts/PingFang.ttc",
+            # Windows 字体
+            "C:/Windows/Fonts/msyh.ttc",  # 微软雅黑
+            "C:/Windows/Fonts/simhei.ttf",  # 黑体
+            "C:/Windows/Fonts/msyhbd.ttc",  # 微软雅黑粗体
+            "C:/Windows/Fonts/simsun.ttc",  # 宋体
+            "C:/Windows/Fonts/msgothic.ttc",  # MS Gothic
+            # Linux 字体（Ubuntu/Debian/CentOS）
+            "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",  # 文泉驿正黑
+            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",  # 文泉驿微米黑
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",  # Noto CJK
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # DejaVu
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+            "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",  # Ubuntu
+            "/usr/share/fonts/google-noto-cjk/NotoSansCJK-Regular.ttc",  # CentOS/RHEL
+            "/usr/share/fonts/google-noto/NotoSans-Regular.ttf",
+            # macOS 字体
+            "/System/Library/Fonts/PingFang.ttc",  # 苹方
+            "/System/Library/Fonts/STHeiti Light.ttc",  # 黑体
+            "/System/Library/Fonts/Hiragino Sans GB.ttc",  # 冬青黑体
         ]
         
         for font_path in font_paths:
@@ -390,143 +406,6 @@ class PhigrosRenderer:
                                20, target_height=img_height)
                 x_diff += 120
         
-        canvas = canvas.convert("RGB")
-        canvas.save(output_path, "PNG", quality=self.image_quality)
-        return output_path
-
-    async def render_best30(self, data: Dict[str, Any], output_path: str) -> str:
-        """渲染 Best30 成绩图"""
-        # 在线程池中执行 CPU 密集型渲染
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            self._executor,
-            self._render_best30_sync,
-            data,
-            output_path
-        )
-
-    def _render_best30_sync(self, data: Dict[str, Any], output_path: str) -> str:
-        """同步渲染 Best30 成绩图（在线程池中执行）"""
-        img_width, img_height = 1920, 1080
-
-        # 创建渐变背景
-        canvas = self._create_gradient_background(
-            (img_width, img_height),
-            (20, 20, 35),
-            (35, 40, 60)
-        )
-        draw = ImageDraw.Draw(canvas)
-
-        # 解析数据
-        save = data.get("save", {})
-        game_record = save.get("game_record", {})
-        summary = data.get("summary", {})
-
-        rks = summary.get("rks", 0)
-
-        # 计算每首歌曲的 RKS 贡献值并排序
-        # RKS 计算：单曲 RKS = ((acc - 55) / 45) ^ 2 * 定数 (当 acc >= 70)
-        # 取最高的 30 首单曲 RKS 的平均值
-        song_list = []
-        for song_key, records in game_record.items():
-            if not records:
-                continue
-            record = records[0]  # 取最佳成绩
-            acc = record.get("accuracy", 0)
-            score = record.get("score", 0)
-            diff = record.get("difficulty", "?").upper()
-            constant = record.get("constant", 0)  # 谱面定数
-
-            # 计算单曲 RKS
-            single_rks = 0
-            if acc >= 70 and constant > 0:
-                single_rks = ((acc - 55) / 45) ** 2 * constant
-
-            song_list.append({
-                "song_key": song_key,
-                "acc": acc,
-                "score": score,
-                "diff": diff,
-                "constant": constant,
-                "single_rks": single_rks,
-                "record": record
-            })
-
-        # 按单曲 RKS 排序（这才是真正的 Best30 逻辑）
-        song_list.sort(key=lambda x: x["single_rks"], reverse=True)
-        best30 = song_list[:30]
-        
-        # 绘制标题栏
-        title_bar = self._create_rounded_rectangle((1860, 70), 15, (0, 0, 0, 200))
-        canvas.paste(title_bar, (30, 20), title_bar)
-        self._draw_text_with_shadow(draw, f"Best 30 - RKS: {rks:.4f}", (50, 35), 48, target_height=None)
-        
-        # 绘制 Best30 卡片 - 5行6列布局
-        y_offset = 110
-        x_positions = [30, 350, 670, 990, 1310, 1630]
-        
-        for i, song_data in enumerate(best30):
-            if i > 0 and i % 6 == 0:
-                y_offset += 310
-                if y_offset > 1000:
-                    break
-            
-            x_pos = x_positions[i % 6]
-            
-            # 歌曲信息
-            song_key = song_data["song_key"]
-            acc = song_data["acc"]
-            score = song_data["score"]
-            diff = song_data["diff"]
-            
-            song_name = song_key.split(".")[0] if "." in song_key else song_key
-            if len(song_name) > 10:
-                song_name = song_name[:9] + ".."
-            
-            # 难度颜色
-            diff_colors = {
-                "EZ": (102, 204, 102, 255),
-                "HD": (102, 178, 255, 255),
-                "IN": (255, 102, 178, 255),
-                "AT": (178, 102, 255, 255)
-            }
-            diff_color = diff_colors.get(diff, (200, 200, 200, 255))
-            
-            # 卡片背景
-            card_bg = self._create_rounded_rectangle((300, 290), 12, (0, 0, 0, 140))
-            canvas.paste(card_bg, (x_pos, y_offset), card_bg)
-            
-            # 排名标签 (1-3名特殊颜色)
-            rank_colors = {
-                0: (255, 215, 0, 200),    # 金牌
-                1: (192, 192, 192, 200),  # 银牌
-                2: (205, 127, 50, 200)    # 铜牌
-            }
-            rank_color = rank_colors.get(i, (80, 80, 80, 150))
-            
-            rank_bg = self._create_rounded_rectangle((40, 30), 8, rank_color)
-            canvas.paste(rank_bg, (x_pos + 10, y_offset + 10), rank_bg)
-            self._draw_text(draw, str(i + 1), (x_pos + 18, y_offset + 12), 18, 
-                           color=(255, 255, 255, 255), target_height=None)
-            
-            # 获取曲绘
-            illust = self.get_illustration(song_key)
-            if illust:
-                ill_card = self._create_illustration_card(illust, (280, 180), 10)
-                canvas.paste(ill_card, (x_pos + 10, y_offset + 45), ill_card)
-            else:
-                placeholder = self._create_rounded_rectangle((280, 180), 10, (50, 50, 70, 180))
-                canvas.paste(placeholder, (x_pos + 10, y_offset + 45), placeholder)
-            
-            # 歌曲信息
-            self._draw_text_with_shadow(draw, song_name, (x_pos + 15, y_offset + 235), 
-                                       22, target_height=None)
-            self._draw_text_with_shadow(draw, f"[{diff}] {score}", (x_pos + 15, y_offset + 260), 
-                                       18, color=diff_color, target_height=None)
-            self._draw_text_with_shadow(draw, f"Acc: {acc:.2f}%", (x_pos + 15, y_offset + 280), 
-                                       16, target_height=None)
-        
-        # 保存图片
         canvas = canvas.convert("RGB")
         canvas.save(output_path, "PNG", quality=self.image_quality)
         return output_path
