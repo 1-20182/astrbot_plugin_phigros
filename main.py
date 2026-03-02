@@ -697,9 +697,13 @@ class PhigrosPlugin(Star):
 
             # 发送二维码
             qr_path = self.output_dir / "taptap_qr.png"
-            logger.info(f"🔍 检查二维码文件: {qr_path}, 存在: {qr_path.exists()}")
+            logger.info(f"🔍 检查二维码文件: {qr_path}")
+            logger.info(f"🔍 文件存在: {qr_path.exists()}")
+            logger.info(f"🔍 目录内容: {list(self.output_dir.glob('*.png'))}")
+            
             if qr_path.exists():
                 logger.info(f"🔍 文件大小: {qr_path.stat().st_size} bytes")
+                logger.info(f"🔍 文件权限: {oct(qr_path.stat().st_mode)}")
                 
                 # 先发送文字提示
                 yield event.plain_result("📱 请使用 TapTap APP 扫描下方二维码登录:")
@@ -707,8 +711,11 @@ class PhigrosPlugin(Star):
                 try:
                     # 尝试发送图片（兼容不同平台）
                     logger.info("🔍 尝试发送图片...")
-                    yield event.chain_result([Image(file=str(qr_path))])
-                    logger.info("� 图片发送完成")
+                    # 使用绝对路径
+                    abs_path = qr_path.resolve()
+                    logger.info(f"🔍 绝对路径: {abs_path}")
+                    yield event.chain_result([Image(file=str(abs_path))])
+                    logger.info("🔍 图片发送完成")
                     
                     # 再发送剩余文字
                     yield event.plain_result("⏰ 二维码有效期 2 分钟，请在手机上确认登录...\n⏳ 等待扫码中...")

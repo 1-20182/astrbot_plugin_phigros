@@ -59,12 +59,13 @@ class TapTapLoginManagerAPI:
         """
         self.base_url = base_url.rstrip('/')
         self.api_token = api_token
-        self.output_dir = output_dir
-        self.output_dir.mkdir(exist_ok=True)
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         self.session = session
 
-        # 文件路径
-        self.qr_code_path = output_dir / "taptap_qr.png"
+        # 文件路径（使用 Path 确保跨平台兼容）
+        self.qr_code_path = self.output_dir / "taptap_qr.png"
+        logger.info(f"🔍 二维码保存路径: {self.qr_code_path}")
 
         # 状态
         self._current_status = LoginStatus.INITIALIZING
