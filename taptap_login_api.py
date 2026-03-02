@@ -120,7 +120,8 @@ class TapTapLoginManagerAPI:
                 logger.info(f"验证链接: {verification_url}")
 
                 # 使用 verificationUrl 生成二维码图片（更可靠）
-                if QRCODE_AVAILABLE and verification_url:
+                use_qrcode_lib = QRCODE_AVAILABLE
+                if use_qrcode_lib and verification_url:
                     logger.info("使用 qrcode 库生成二维码图片")
                     try:
                         qr = qrcode.QRCode(
@@ -140,9 +141,9 @@ class TapTapLoginManagerAPI:
                         logger.info(f"二维码已保存到: {self.qr_code_path}")
                     except Exception as e:
                         logger.error(f"使用 qrcode 库生成失败: {e}，回退到 base64 方式")
-                        QRCODE_AVAILABLE = False
+                        use_qrcode_lib = False
                 
-                if not QRCODE_AVAILABLE or not verification_url:
+                if not use_qrcode_lib or not verification_url:
                     # 回退：使用 API 返回的 base64 数据
                     logger.info("使用 API 返回的 base64 数据")
                     
@@ -162,8 +163,10 @@ class TapTapLoginManagerAPI:
                     with open(self.qr_code_path, 'wb') as f:
                         f.write(qr_data)
                     logger.info(f"二维码已保存到: {self.qr_code_path}")
+                    logger.info(f"🔍 文件大小: {self.qr_code_path.stat().st_size} bytes")
 
                 self._current_status = LoginStatus.QR_READY
+                logger.info(f"✅ 二维码生成完成，准备返回")
                 return qrcode_base64
 
         except aiohttp.ClientError as e:

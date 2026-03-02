@@ -338,7 +338,7 @@ class PhiStyleRenderer:
             logger.warning(f"绘制文本失败 '{text}': {e}")
 
     def _get_illustration(self, song_key: str) -> Optional[Image.Image]:
-        """获取曲绘"""
+        """获取曲绘（支持大小写不敏感和多种扩展名）"""
         if song_key in self._illustration_cache:
             return self._illustration_cache[song_key].copy()
 
@@ -346,8 +346,15 @@ class PhiStyleRenderer:
         song_key_lower = song_key.lower()
         matched_file = None
 
+        # 获取所有图片文件（支持 .png, .jpg, .jpeg, .gif 等）
+        all_image_files = []
+        for ext in ['*.png', '*.jpg', '*.jpeg', '*.gif', '*.bmp', '*.webp']:
+            all_image_files.extend(self.illustration_path.glob(ext))
+            # Ubuntu 大小写敏感，同时匹配大写扩展名
+            all_image_files.extend(self.illustration_path.glob(ext.upper()))
+
         # 首先尝试精确匹配
-        for file in self.illustration_path.glob("*.png"):
+        for file in all_image_files:
             file_stem_lower = file.stem.lower()
             if song_key_lower == file_stem_lower:
                 matched_file = file
@@ -355,7 +362,7 @@ class PhiStyleRenderer:
 
         # 如果没有精确匹配，尝试包含匹配
         if not matched_file:
-            for file in self.illustration_path.glob("*.png"):
+            for file in all_image_files:
                 file_stem_lower = file.stem.lower()
                 if song_key_lower in file_stem_lower:
                     matched_file = file
@@ -367,7 +374,7 @@ class PhiStyleRenderer:
             # 去除空格和特殊字符，只保留字母、数字和中文
             song_key_normalized = re.sub(r'[^\w\u4e00-\u9fff]', '', song_key_lower)
             if song_key_normalized:
-                for file in self.illustration_path.glob("*.png"):
+                for file in all_image_files:
                     file_stem_normalized = re.sub(r'[^\w\u4e00-\u9fff]', '', file.stem.lower())
                     if song_key_normalized in file_stem_normalized or file_stem_normalized in song_key_normalized:
                         matched_file = file
@@ -377,11 +384,18 @@ class PhiStyleRenderer:
             try:
                 img = Image.open(matched_file).convert("RGBA")
                 self._illustration_cache[song_key] = img.copy()
+                logger.info(f"✅ 找到曲绘: {song_key} -> {matched_file.name}")
                 return img
             except Exception as e:
                 logger.warning(f"加载曲绘失败 {song_key}: {e}")
         else:
-            logger.debug(f"未找到曲绘: {song_key}")
+            # 在 Ubuntu 下添加更详细的调试信息
+            logger.warning(f"未找到曲绘: {song_key}")
+            logger.debug(f"曲绘目录: {self.illustration_path}")
+            logger.debug(f"目录存在: {self.illustration_path.exists()}")
+            if self.illustration_path.exists():
+                files = list(self.illustration_path.glob("*.png"))[:5]
+                logger.debug(f"样本文件: {[f.name for f in files]}")
 
         return None
 

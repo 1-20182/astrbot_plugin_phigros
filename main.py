@@ -12,7 +12,7 @@ from typing import Optional, Dict, Any, List
 from pathlib import Path
 
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.message_components import Plain
+from astrbot.api.message_components import Plain, Image
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger
 
@@ -467,7 +467,6 @@ class PhigrosPlugin(Star):
             await render_func(data, output_path, *args)
             
             # 发送图片
-            from astrbot.api.message_components import Image
             yield event.chain_result([Image(file=output_path)])
             
         except Exception as e:
@@ -681,6 +680,9 @@ class PhigrosPlugin(Star):
 
             # 生成二维码
             qr_base64 = await login_manager.generate_qr_code(taptap_version)
+            logger.info(f"🔍 二维码生成返回: {'成功' if qr_base64 else '失败'}")
+            logger.info(f"🔍 登录管理器二维码路径: {login_manager.qr_code_path}")
+            logger.info(f"🔍 本地二维码路径: {self.output_dir / 'taptap_qr.png'}")
 
             if not qr_base64:
                 yield event.plain_result(
@@ -695,29 +697,34 @@ class PhigrosPlugin(Star):
 
             # 发送二维码
             qr_path = self.output_dir / "taptap_qr.png"
+            logger.info(f"🔍 检查二维码文件: {qr_path}, 存在: {qr_path.exists()}")
             if qr_path.exists():
-                from astrbot.api.message_components import Image
+                logger.info(f"🔍 文件大小: {qr_path.stat().st_size} bytes")
+                
+                # 先发送文字提示
+                yield event.plain_result("📱 请使用 TapTap APP 扫描下方二维码登录:")
+                
                 try:
                     # 尝试发送图片（兼容不同平台）
-                    yield event.chain_result([
-                        Plain("📱 请使用 TapTap APP 扫描下方二维码登录:\n"),
-                        Image(file=str(qr_path)),
-                        Plain("⏰ 二维码有效期 2 分钟，请在手机上确认登录...\n⏳ 等待扫码中...")
-                    ])
+                    logger.info("🔍 尝试发送图片...")
+                    yield event.chain_result([Image(file=str(qr_path))])
+                    logger.info("� 图片发送完成")
+                    
+                    # 再发送剩余文字
+                    yield event.plain_result("⏰ 二维码有效期 2 分钟，请在手机上确认登录...\n⏳ 等待扫码中...")
                 except Exception as e:
-                    logger.warning(f"发送二维码图片失败: {e}，尝试使用 base64 方式")
+                    logger.error(f"🔍 发送二维码图片失败: {e}")
+                    import traceback
+                    logger.error(f"🔍 异常详情: {traceback.format_exc()}")
                     # 如果文件方式失败，尝试使用 base64
                     try:
                         import base64
                         with open(qr_path, 'rb') as f:
                             img_base64 = base64.b64encode(f.read()).decode()
-                        yield event.chain_result([
-                            Plain("📱 请使用 TapTap APP 扫描下方二维码登录:\n"),
-                            Image.fromBase64(img_base64),
-                            Plain("⏰ 二维码有效期 2 分钟，请在手机上确认登录...\n⏳ 等待扫码中...")
-                        ])
+                        yield event.chain_result([Image.fromBase64(img_base64)])
+                        yield event.plain_result("⏰ 二维码有效期 2 分钟，请在手机上确认登录...\n⏳ 等待扫码中...")
                     except Exception as e2:
-                        logger.error(f"Base64 方式也失败: {e2}")
+                        logger.error(f"🔍 Base64 方式也失败: {e2}")
                         # 最后回退：只发送链接
                         yield event.plain_result(
                             f"📱 请使用 TapTap APP 扫描登录\n"
@@ -726,6 +733,7 @@ class PhigrosPlugin(Star):
                             f"⏰ 二维码有效期 2 分钟"
                         )
             else:
+                logger.error(f"🔍 二维码文件不存在: {qr_path}")
                 yield event.plain_result("❌ 二维码文件未生成，请检查日志")
                 return
 
@@ -944,7 +952,6 @@ class PhigrosPlugin(Star):
                         logger.error(f"SVG 转换失败: {e}")
             
             # 发送图片或提示
-            from astrbot.api.message_components import Image
             if render_success or convert_success:
                 yield event.chain_result([
                     Plain(f"🎵 Best30 成绩图 ({theme}主题)\n"),
@@ -1038,7 +1045,6 @@ class PhigrosPlugin(Star):
                 logger.warning("SVG 转换器未加载")
 
             # 发送图片或提示
-            from astrbot.api.message_components import Image
             if convert_success:
                 yield event.chain_result([
                     Plain(f"🎵 Best{n} 成绩图 ({theme}主题)\n"),
@@ -1340,7 +1346,6 @@ class PhigrosPlugin(Star):
                 logger.warning("SVG 转换器未加载")
 
             # 发送图片或提示
-            from astrbot.api.message_components import Image
             if convert_success:
                 yield event.chain_result([
                     Plain(f"🎵 歌曲成绩图\n"),
