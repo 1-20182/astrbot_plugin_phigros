@@ -1,0 +1,336 @@
+[
+    {
+        "group": "绑定",
+        "list": [
+            {
+                "title": "/bind",
+                "eg": "/bind <sessionToken|qrcode>",
+                "desc": "绑定你的 sessionToken<br>eg1: /bind abcdefghijklmnopqrstuvwxy<br>eg2: /bind qrcode"
+            },
+            {
+                "title": "/unbind",
+                "eg": "/unbind",
+                "desc": "在 Bot 上删除储存的你的存档以及成绩记录，需要二次确认<br>eg: /unbind"
+            },
+            {
+                "title": "/tk help",
+                "eg": "/tk help",
+                "desc": "获取 sessionToken 相关帮助文档"
+            }
+        ]
+    },
+    {
+        "group": "查询 & 统计",
+        "list": [
+            {
+                "title": "/update",
+                "eg": "/update",
+                "desc": "更新 Bot 端存储的成绩，/pgr 也可以自动更新<br>eg: /update"
+            },
+            {
+                "title": "/pgr",
+                "eg": "/pgr [背景(可选)]",
+                "desc": "获取 B30 成绩图，在主题不为⌈使一颗心免于哀伤⌋时可以选择背景曲绘<br>eg1: /pgr    eg2: /pgr df"
+            },
+            {
+                "title": "/p30",
+                "eg": "/p30 [背景(可选)]",
+                "desc": "获取 P30 成绩图，在主题不为⌈使一颗心免于哀伤⌋时可以选择背景曲绘<br>eg1: /P30    eg2: /p30 df"
+            },
+            {
+                "title": "杠批比三零",
+                "eg": "杠批比三零 杠批B30",
+                "desc": "获取 B30 成绩图<br>eg1: 杠批比三零<br>eg2: 杠批B99"
+            },
+            {
+                "title": "/info",
+                "eg": "/info [背景(可选)]",
+                "desc": "获取你的个人统计信息<br>eg1: /info    eg2: /info df"
+            },
+            {
+                "title": "/score",
+                "eg": "/score <曲目> [-dif 难度] [-or acc|score|fc|time] [-unrank]",
+                "desc": "获取单曲成绩<br>eg: /score df<br>API用户默认展示最高难度排名成绩，使用 -unrank 参数可关闭该功能，-dif 参数可指定排名难度，-or 参数可指定排序方式；eg: /score df -dif IN -or acc"
+            },
+            {
+                "title": "/lvsco<br>/scolv",
+                "eg": "/lvsco [定数] [难度]",
+                "desc": "获取指定范围内的成绩统计图<br>eg1: /lvsco 15+<br>eg2: /lvsco 14 IN HD<br>eg3: /lvsco 12-15 IN AT"
+            },
+            {
+                "title": "/chap",
+                "eg": "/chap <章节名称>",
+                "desc": "查询章节成绩，/chap help 可以获取支持的章节名称<br>eg: /chap c0"
+            },
+            {
+                "title": "/list",
+                "eg": "/list [-dif 定数范围] [-acc ACC范围] [难度等级] [评级]",
+                "desc": "列出所有匹配的成绩<br>eg: /list -dif 11.1-12.2 -acc 98.5-100 IN FC"
+            },
+            {
+                "title": "/hisb30",
+                "eg": "/hisb30",
+                "desc": "根据历史记录计算B30变化情况<br>eg: /hisb30"
+            },
+            {
+                "title": "/bN /pN<br>/xN /fcN",
+                "eg": "/b<N> /p<N> /x<N> /fc<N>",
+                "desc": "显示指定数量的成绩图，可以选择仅phi（p30），仅1good（x30），仅fc（fc30）<br>eg: /b60 /p30 /x30 /fc30"
+            },
+            {
+                "title": "/lmtacc",
+                "eg": "/lmtacc <0-100>",
+                "desc": "计算筛去小于输入的acc值的成绩后的玩家RKS值 <br>eg: /lmtacc 98.5"
+            },
+            {
+                "title": "/bestN",
+                "eg": "/best <1-99>",
+                "desc": "获取文字版 B<N> 成绩，私聊获取完整版，建议私聊使用<br>eg: /best 19"
+            },
+            {
+                "title": "/suggest [定数] [难度] [评级]",
+                "eg": "/suggest",
+                "desc": "获取推分（使游戏内显示数值+0.01）建议<br>eg: /suggest 15 F"
+            },
+            {
+                "title": "/data",
+                "eg": "/data",
+                "desc": "获取 data 数量<br>eg: /data"
+            }
+        ]
+    },
+    {
+        "group": "图鉴 & 功能",
+        "list": [
+            {
+                "title": "/ranklist<br>/排行榜",
+                "eg": "/ranklist [名次]",
+                "desc": "放榜<br>eg1: /ranklist<br>eg2: /ranklist 520"
+            },
+            {
+                "title": "/rankfind<br>/查询排名",
+                "eg": "/rankfind [rks]",
+                "desc": "查询rks排名<br>eg1: /rankfind 16.1"
+            },
+            {
+                "title": "/song",
+                "eg": "/song <曲目> [-comment] [-p <页码>]",
+                "desc": "查询曲目图鉴，-comment 展示评论，-p 选择评论页数<br>eg: /song 996<br>eg: /song 996 -p 2"
+            },
+            {
+                "title": "/chart",
+                "eg": "/chart <曲名> <难度>",
+                "desc": "查询谱面详情"
+            },
+            {
+                "title": "/tag",
+                "eg": "/tag <曲名> <难度>",
+                "desc": "查看谱面标签，标签可选项见回复说明，难度默认为IN<br>eg: /tag df IN"
+            },
+            {
+                "title": "/settag",
+                "eg": "/settag <曲名> <难度> <标签>",
+                "desc": "为谱面添加标签给谱面打标签，推荐先使用/tag查询标签列表，难度默认为IN<br>eg: /settag df IN 底力"
+            },
+            {
+                "title": "/cmt",
+                "eg": "/cmt <曲名> <难度?>(换行)<内容>",
+                "desc": "评论曲目，难度默认为IN<br>eg: /cmt 996 HD<br>好玩"
+            },
+            {
+                "title": "/mycmt",
+                "eg": "/mycmt",
+                "desc": "查看自己的云端评论"
+            },
+            {
+                "title": "/recmt",
+                "eg": "/recmt <评论ID>",
+                "desc": "查看并确认是否删评，仅发送者和主人权限，云端仅可以删除自己的评论"
+            },
+            {
+                "title": "/table",
+                "eg": "/table <定数>",
+                "desc": "查询定数表"
+            },
+            {
+                "title": "/ill",
+                "eg": "/ill <曲目>",
+                "desc": "查询曲目曲绘<br>eg: /ill 996"
+            },
+            {
+                "title": "/rand",
+                "eg": "/rand [定数] [难度]",
+                "desc": "随机谱面<br>eg1: /rand 13+<br>eg2: /rand 15-<br>eg3: /rand 14-16 AT"
+            },
+            {
+                "title": "/randclg",
+                "eg": "/randclg [课题总值] [难度] ([曲目定数范围])",
+                "desc": "随机课题<br>eg1: /randclg 40+ IN<br>eg2: /rand 40 (IN 13-15)<br>eg3: /rand 40-48 AT IN (15+)"
+            },
+            {
+                "title": "/search",
+                "eg": "/search [bpm N-N] [dif N-N] [cmb N-N]",
+                "desc": "查询符合条件的曲目，建议私聊使用<br>eg1: /search bpm 300<br>eg2: /search bpm 1-300 dif 15"
+            },
+            {
+                "title": "/alias",
+                "eg": "/alias <id或别名>",
+                "desc": "查询歌曲别名<br>eg1: /alias 996<br>eg2: /alias AnotherMe.DAAN"
+            },
+            {
+                "title": "/com<br>/计算",
+                "eg": "/com <定数> <ACC>",
+                "desc": "计算等效rks<br>eg: /com 15.9 99.50"
+            },
+            {
+                "title": "/tips",
+                "eg": "/tips",
+                "desc": "随机tips"
+            }
+        ]
+    },
+    {
+        "group": "娱乐 & 设定",
+        "list": [
+            {
+                "title": "/ltr",
+                "eg": "/ltr /nN.xx /ans /open x",
+                "desc": "开字母小游戏<br>eg1: /第一个996 /n1.df<br>eg2:/开 A /open A"
+            },
+            {
+                "title": "/guess",
+                "eg": "/guess (直接回答) /ans",
+                "desc": "猜曲绘，回答直接发曲目，识别后 Bot 会回复正确与否"
+            },
+            {
+                "title": "/tipgame",
+                "eg": "/tipgame /tip (直接回答) /ans",
+                "desc": "提示猜歌，回答直接发曲目，识别后 Bot 会回复正确与否"
+            },
+            {
+                "title": "/theme",
+                "eg": "/theme [0-3]",
+                "desc": "切换主题，作用于 pgr update list task<br>0：默认&ensp;&ensp;&ensp;1：寒冬<br>2：使一颗心免于哀伤<br>3：大师赛2eg: /theme 1"
+            },
+            {
+                "title": "/sign",
+                "eg": "/sign",
+                "desc": "签到打卡获取 Notes 和任务卡片<br>eg: /sign"
+            },
+            {
+                "title": "/send",
+                "eg": "/send @ <N>",
+                "desc": "用于 Notes 转账，会从中扣除部分<br>eg: /send @xx 520"
+            },
+            {
+                "title": "/task",
+                "eg": "/task",
+                "desc": "查看自己的任务<br>eg: /task"
+            },
+            {
+                "title": "/retask",
+                "eg": "/retask",
+                "desc": "花费 20Notes 重置自己的任务，每日 /sign 可视为一次 /retask ，每日第一次 retask 免费<br>eg: /retask"
+            },
+            {
+                "title": "/jrrp",
+                "eg": "/jrrp",
+                "desc": "查询今日人品；仅供娱乐嗷！"
+            }
+        ]
+    },
+    {
+        "group": "反馈 & 提议",
+        "list": [
+            {
+                "title": "详细帮助文档",
+                "eg": "详细帮助文档",
+                "desc": "扫描二维码进入文档",
+                "img": "helpDoc.png"
+            },
+            {
+                "title": "别名提案",
+                "eg": "别名提案",
+                "desc": "扫描二维码进入文档",
+                "img": "nickSuggest.png"
+            },
+            {
+                "title": "问题反馈",
+                "eg": "问题反馈",
+                "desc": "扫描二维码进入文档",
+                "img": "callback.png"
+            }
+        ]
+    },
+    {
+        "group": "管理员命令",
+        "auth": "master",
+        "list": [
+            {
+                "title": "/set",
+                "eg": "/set<功能><参数>",
+                "desc": "修改设置，建议先/set查看功能名称，没有空格"
+            },
+            {
+                "title": "/backup",
+                "eg": "/backup [back]",
+                "desc": "备份存档文件，+ back 发送该备份文件，自动保存在 /phi-plugin/backup/ 目录下"
+            },
+            {
+                "title": "/restore",
+                "eg": "/restore",
+                "desc": "从备份中还原，不会丢失已有数据，需要将文件放在 /phi-plugin/backup/ 目录下"
+            },
+            {
+                "title": "/设置别名<br>/setnick",
+                "eg": "/setnick <原名>---><别名>",
+                "desc": "设置某一歌曲的别名<br>eg: /setnick 996--->福报"
+            },
+            {
+                "title": "/删除别名<br>/delnick",
+                "eg": "/delnick <别名>",
+                "desc": "删除某一歌曲的别名<br>eg: /delnick 福报"
+            },
+            {
+                "title": "/repu",
+                "eg": "/repu",
+                "desc": "重启puppeteer，仅支持最新版喵崽"
+            },
+            {
+                "title": "/下载曲绘<br>/down ill",
+                "eg": "/下载曲绘",
+                "desc": "下载曲绘到本地，首次安装与渲染错误请优先执行"
+            },
+            {
+                "title": "/更新<br>/gx",
+                "eg": "/[强制]更新",
+                "desc": "更新本插件"
+            },
+            {
+                "title": "/get",
+                "eg": "/get <名次>",
+                "desc": "获取排行榜上某一名次的sessionToken"
+            },
+            {
+                "title": "/del",
+                "eg": "/del <sessionToken>",
+                "desc": "禁用某一sessionToken"
+            },
+            {
+                "title": "/allow",
+                "eg": "/allow <sessionToken>",
+                "desc": "恢复某一sessionToken"
+            },
+            {
+                "title": "/ban",
+                "eg": "/ban <功能>",
+                "desc": "禁用某一类功能"
+            },
+            {
+                "title": "/unban",
+                "eg": "/unban <功能>",
+                "desc": "恢复使用某一类功能\n可选参数: all help bind b19 wb19 song ranklist fnc tipgame guessgame ltrgame sign setting dan"
+            }
+        ]
+    }
+]

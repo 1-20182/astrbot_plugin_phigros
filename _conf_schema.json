@@ -1,0 +1,69 @@
+{
+  "phigros_api_token": {
+    "type": "string",
+    "default": "",
+    "description": "Phigros API Token",
+    "hint": "用于访问 Phigros Query 开放平台，请在官网获取"
+  },
+  "enable_renderer": {
+    "type": "bool",
+    "default": true,
+    "description": "启用图片渲染",
+    "hint": "是否启用图片渲染功能，需要安装 Pillow 库"
+  },
+  "illustration_path": {
+    "type": "string",
+    "default": "./ILLUSTRATION",
+    "description": "曲绘文件夹路径",
+    "hint": "相对于插件目录的曲绘文件夹路径，默认使用 ILLUSTRATION 文件夹"
+  },
+  "image_quality": {
+    "type": "int",
+    "default": 95,
+    "description": "图片质量",
+    "hint": "渲染图片的质量，范围 1-100，数值越高越清晰但文件越大",
+    "min": 1,
+    "max": 100
+  },
+  "default_taptap_version": {
+    "type": "string",
+    "default": "cn",
+    "description": "默认 TapTap 版本",
+    "hint": "查询存档时默认使用的 TapTap 版本: cn(国服) 或 global(国际版)"
+  },
+  "default_search_limit": {
+    "type": "int",
+    "default": 5,
+    "description": "默认搜索数量",
+    "hint": "歌曲搜索时默认返回的结果数量",
+    "min": 1,
+    "max": 20
+  },
+  "default_history_limit": {
+    "type": "int",
+    "default": 10,
+    "description": "默认历史记录数量",
+    "hint": "RKS 历史查询时默认返回的记录数量",
+    "min": 1,
+    "max": 50
+  },
+  "enable_auto_update_illustration": {
+    "type": "bool",
+    "default": true,
+    "description": "启用曲绘自动更新",
+    "hint": "是否自动从 GitHub 检查并下载最新曲绘（首次运行或每7天检查一次）"
+  },
+  "illustration_update_proxy": {
+    "type": "string",
+    "default": "",
+    "description": "曲绘更新代理地址",
+    "hint": "如果无法直接访问 GitHub，请填写代理地址，如: http://127.0.0.1:7890"
+  },
+  "renderer_mode": {
+    "type": "string",
+    "default": "auto",
+    "description": "渲染模式",
+    "hint": "选择图片渲染模式: auto(自动选择最佳), phi_style(Phi-Plugin风格,推荐), playwright(HTML+浏览器), html2pil(HTML+Pillow), pillow(原生Pillow)",
+    "options": ["auto", "phi_style", "playwright", "html2pil", "pillow"]
+  }
+}

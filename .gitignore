@@ -1,0 +1,35 @@
+# 忽略的文件
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 临时文件
+*.tmp
+*.temp
+output/
+cache/
+
+# 编辑器文件
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+Thumbs.db
+.DS_Store
+
+# 环境文件
+.env
+.env.local
+.env.*.local
+
+# 依赖文件
+venv/
+env/
+
+# 构建文件
+build/
+dist/
+*.egg-info/
