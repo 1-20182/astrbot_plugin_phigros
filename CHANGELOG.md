@@ -6,6 +6,37 @@
 
 ## 🎉 最新版本
 
+### v2.0.0 - 架构大重构！稳定又高效！🚀✨
+
+**哇塞！整个插件都焕然一新啦！** 🎉
+
+这次我们进行了全面的架构重构，解决了之前提到的所有技术痛点！代码更清晰、性能更强、稳定性更好！
+
+**这次重构了什么？**
+
+#### 🎯 P0 优先级改进（必须立即修复的）：
+- ✅ **连接池和限流机制** - 使用 TCPConnector 连接池 + RateLimiter 令牌桶算法，再也不怕 API 被 ban 啦！
+- ✅ **真正的错误恢复** - 新增 `@retry` 装饰器，网络波动时自动重试 3 次，指数退避，超智能！
+- ✅ **同步阻塞修复** - 使用 ThreadPoolManager 线程池，将 PIL 图片操作和文件 IO 全部异步化，事件循环再也不卡啦！
+- ✅ **缓存淘汰策略** - LRUCache + DiskCache + HybridCache 三级缓存，内存磁盘双重保障，性能杠杠的！
+
+#### 🏗️ 架构层面改进：
+- ✅ **模块化目录结构** - 新增 core/、render/、auth/ 目录，代码结构更清晰！
+- ✅ **自定义异常类** - PhigrosAPIError、RenderError、CacheError、AuthError、ValidationError、NetworkError、RateLimitError，错误处理更精准！
+- ✅ **API 客户端独立** - PhigrosAPIClient 封装所有 API 调用，带重试、限流、连接池！
+- ✅ **缓存管理器** - LRUCache（内存）+ DiskCache（磁盘）+ HybridCache（混合），三级缓存！
+- ✅ **线程池工具** - ThreadPoolManager 单例，asyncify、pil_async、file_async 装饰器！
+
+#### 📦 新增模块：
+- `core/exceptions.py` - 自定义异常类
+- `core/api_client.py` - API 客户端（带重试、限流、连接池）
+- `core/cache_manager.py` - 缓存管理器（LRU + Disk + Hybrid）
+- `core/thread_pool.py` - 线程池工具（异步化同步 IO）
+
+> 💖 **使用小贴士**：现在插件更稳定、更快速啦！所有 P0 优先级的问题都解决了喵！后续我们会继续优化其他功能~
+
+---
+
 ### v1.9.6 - 轻量版本来啦！🚀✨
 
 **国内用户福音！下载速度飞起来啦！** 🎉
