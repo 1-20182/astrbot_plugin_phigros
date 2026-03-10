@@ -1,12 +1,12 @@
 # 🎮 Phigros Query 插件
 
-> **"你的 RKS 是多少？让我康康！"** 👀
+> **"你的 RKS 是多少？让本猪康康！"** 👀
 
-一个超好玩的 **Phigros 音游数据查询插件**！查存档、看排名、搜歌曲、追新曲... 功能多多，快乐加倍！
+一只超可爱的 **Phigros 音游数据查询插件**来啦！查存档、看排名、搜歌曲、追新曲... 功能多多，快乐加倍！✨
 
 ---
 
-## ✨ 我能干啥？
+## ✨ 本猪能干啥？
 
 | 功能 | 说明 |
 |------|------|
@@ -24,11 +24,11 @@
 
 ---
 
-## 📦 怎么装上我？
+## 📦 怎么把本猪带回家？
 
 ### ✅ 跨平台支持
 
-**不管你是 Windows 党、Ubuntu 党还是 macOS 党，我都能陪你玩！** 🎉
+**不管你是 Windows 党、Ubuntu 党还是 macOS 党，本猪都能陪你玩！** 🎉
 
 | 系统 | 支持状态 | 安装方式 |
 |------|---------|---------|
@@ -106,11 +106,11 @@ pip install -r requirements.txt
 
 ---
 
-## � 轻量版本下载（国内用户福音！）
+## 📦 轻量版本下载（国内用户福音！）
 
 **国内访问 GitHub 网速太慢？别担心！** 🎉
 
-为了解决国内小伙伴下载慢的问题，我们准备了轻量版本的资源包！
+为了解决国内小伙伴下载慢的问题，本猪准备了轻量版本的资源包！
 
 ### 下载步骤：
 1. 点击链接下载资源包：[https://www.123865.com/s/42S9vd-iMmtv](https://www.123865.com/s/42S9vd-iMmtv)
@@ -126,24 +126,47 @@ pip install -r requirements.txt
 
 ---
 
-## �📁 我的身体里都有啥？
+## 📁 本猪的身体里都有啥？
 
 ```
 astrbot_plugin_phigros/
-├── 📄 main.py                 # 我的大脑（主代码）
-├── 📄 utils.py                # 工具箱（公共函数）
+├── 📄 main.py                 # 本猪的大脑（主代码）
 ├── 📄 config.py               # 配置表（常量定义）
+├── 📄 illustration_updater.py # 曲绘自动更新小助手
+├── 📄 image_generator.py      # 图片生成器
 ├── 📄 phi_style_renderer.py   # 高级画笔（极速渲染器）
 ├── 📄 renderer.py             # 旧画笔（备用渲染器）
-├── 📄 taptap_login_api.py     # 扫码登录小助手
-├── 📄 metadata.yaml           # 我的身份证
-├── 📄 requirements.txt        # 我的零食清单（依赖）
+├── 📄 metadata.yaml           # 本猪的身份证
+├── 📄 requirements.txt        # 本猪的零食清单（依赖）
 ├── 📄 _conf_schema.json       # 配置表
 ├── 📄 install.py              # 自动安装小助手
+├── 📄 install.sh              # Ubuntu 安装脚本
+├── 📄 manage.sh               # 管理脚本
 ├── 📄 README.md               # 就是你现在看的这个！
+├── 📄 CHANGELOG.md            # 更新日记
+├── 📄 Dockerfile              # Docker 配置
+├── 📄 docker-compose.yml      # Docker Compose 配置
 ├── 🎨 ILLUSTRATION/           # 曲绘收藏夹
 │   ├── 曲名.曲师.png
 │   └── ...
+├── 🎨 AVATAR/                 # 头像收藏夹
+├── 🎬 VideoClip/              # 视频片段收藏夹
+├── 📂 core/                   # 核心模块
+│   ├── 📄 __init__.py
+│   ├── 📄 api_client.py       # API 客户端（带重试、限流、连接池）
+│   ├── 📄 cache_manager.py    # 缓存管理器（三级缓存）
+│   ├── 📄 exceptions.py       # 自定义异常类
+│   ├── 📄 monitoring.py       # API 监控器
+│   └── 📄 thread_pool.py      # 线程池工具（异步化同步 IO）
+├── 📂 commands/               # 命令模块
+│   ├── 📄 __init__.py
+│   ├── 📄 auth_commands.py    # 认证相关命令
+│   ├── 📄 query_commands.py   # 查询相关命令
+│   └── 📄 other_commands.py   # 其他命令
+├── 📂 auth/                   # 认证模块
+│   └── 📄 __init__.py
+├── 📂 render/                 # 渲染模块
+│   └── 📄 __init__.py
 ├── 📂 resources/              # 资源宝库
 │   ├── 📂 data/               # 歌曲数据
 │   │   ├── info.csv           # 歌曲基础信息
@@ -172,11 +195,11 @@ astrbot_plugin_phigros/
 - `MARENOL.LeaF.png`
 - `Rrharil.TeamGrimoire.png`
 
-没有曲师名也可以只写 `曲名.png` 啦~
+没有曲师名也可以只写 `曲名.png` 啦~ 本猪不挑食！
 
 ---
 
-## 🚀 怎么用我？
+## 🚀 怎么和本猪玩？
 
 ### 📱 扫码登录（超方便！推荐⭐）
 
@@ -192,7 +215,7 @@ astrbot_plugin_phigros/
 - `/phi_qrlogin global` - 国际服
 
 **流程：**
-1. 发送命令后，我会给你发一张二维码
+1. 发送命令后，本猪会给你发一张二维码
 2. 用 TapTap APP 扫码
 3. 在手机上确认登录
 4. 自动获取 token 并绑定，搞定！
@@ -241,7 +264,11 @@ astrbot_plugin_phigros/
 | `/phi_rank` | 查排名 | `/phi_rank 1 10` |
 | `/phi_search` | 搜歌（带图） | `/phi_search Glaciaxion` |
 | `/phi_updates` | 新曲速递 | `/phi_updates 3` |
-| `/phi_help` | 喊我帮忙 | `/phi_help` |
+| `/phi_help` | 喊本猪帮忙 | `/phi_help` |
+| `/phi_video` | 随机视频 | `/phi_video` |
+| `/phi_video_list` | 视频列表 | `/phi_video_list` |
+| `/phi_update_illust` | 手动更新曲绘 | `/phi_update_illust` |
+| `/phi_metrics` | 查看 API 监控指标 | `/phi_metrics` |
 
 ### 💡 使用小技巧
 
@@ -270,9 +297,9 @@ astrbot_plugin_phigros/
 
 ---
 
-## 📋 我需要这些才能跑
+## 📋 本猪需要这些才能跑
 
-- Python >= 3.8（太老了不行哦）
+- Python >= 3.8（太老了本猪跑不动哦）
 - aiohttp >= 3.8.0
 - Pillow >= 10.0.0（生成图片用）
 - AstrBot（这是必须的啦）
@@ -281,10 +308,10 @@ astrbot_plugin_phigros/
 
 ## ⚠️ 使用前必看！
 
-1. **曲绘要自己准备！** 我不会自带曲绘哦，请自行放入 `ILLUSTRATION` 文件夹
+1. **曲绘要自己准备！** 本猪不会自带曲绘哦，请自行放入 `ILLUSTRATION` 文件夹
 2. **API Token** - 没填的话会用内置的，但建议自己搞一个更稳定
 3. **图片生成** - 需要 Pillow，没装的话只能看文字版（没那么酷）
-4. **要联网！** 我要连 Phigros API 才能查数据
+4. **要联网！** 本猪要连 Phigros API 才能查数据
 5. **绑定账号** - 强烈建议绑定，省得每次都输长长的 token
 
 ---
@@ -293,7 +320,7 @@ astrbot_plugin_phigros/
 
 **特别鸣谢：**
 
-👤 **@Sczr0** - Phigros Query 平台的开发者大佬！没有他就没有我！
+👤 **@Sczr0** - Phigros Query 平台的开发者大佬！没有他就没有本猪！
 
 **资源文件来源：**
 - 歌曲数据、字体、图标等资源来自 [phi-plugin](https://github.com/Catrong/phi-plugin)
@@ -313,84 +340,62 @@ astrbot_plugin_phigros/
 
 ## 📝 更新日记
 
-### v1.9.2 - 全平台二维码大修复！🌐✨
+### v2.0.0 - 架构大重构！稳定又高效！🚀✨
 
-**芜湖~ 二维码终于不挑食啦！** 🎉
+**哇塞！本猪焕然一新啦！** 🎉
 
-不管你用的是 Windows、Ubuntu 还是 macOS，现在都能愉快地扫码登录了！
+这次本猪进行了全面的架构重构，解决了之前提到的所有技术痛点！代码更清晰、性能更强、稳定性更好！
 
-- 🌐 **全平台通吃** - Windows/Ubuntu/macOS 都能正常发二维码啦！
-- 🖼️ **PNG 格式强制上岗** - 统一用 PNG，兼容性杠杠的！
-- 🔧 **智能路径小管家** - 自动识别不同系统的 Python 路径
-- 🐛 **路径修复小能手** - 二维码文件乖乖待在正确的位置
+**这次重构了什么？**
 
-### v1.9.1 - Ubuntu 支持大升级！🐧
+#### 🎯 P0 优先级改进（必须立即修复的）：
+- ✅ **连接池和限流机制** - 使用 TCPConnector 连接池 + RateLimiter 令牌桶算法，再也不怕 API 被 ban 啦！
+- ✅ **真正的错误恢复** - 新增 `@retry` 装饰器，网络波动时自动重试 3 次，指数退避，超智能！
+- ✅ **同步阻塞修复** - 使用 ThreadPoolManager 线程池，将 PIL 图片操作和文件 IO 全部异步化，事件循环再也不卡啦！
+- ✅ **缓存淘汰策略** - LRUCache + DiskCache + HybridCache 三级缓存，内存磁盘双重保障，性能杠杠的！
 
-**Ubuntu 用户狂喜！** 🎉
+#### 🏗️ 架构层面改进：
+- ✅ **模块化目录结构** - 新增 core/、render/、auth/ 目录，代码结构更清晰！
+- ✅ **自定义异常类** - PhigrosAPIError、RenderError、CacheError、AuthError、ValidationError、NetworkError、RateLimitError，错误处理更精准！
+- ✅ **API 客户端独立** - PhigrosAPIClient 封装所有 API 调用，带重试、限流、连接池！
+- ✅ **缓存管理器** - LRUCache（内存）+ DiskCache（磁盘）+ HybridCache（混合），三级缓存！
+- ✅ **线程池工具** - ThreadPoolManager 单例，asyncify、pil_async、file_async 装饰器！
+- ✅ **监控系统** - APIMonitor 统计 API 调用成功率、耗时等指标，支持 `/phi_metrics` 命令查看！
 
-- 📱 **二维码发送修复** - 修复 Ubuntu 系统无法发送二维码图片的问题
-- 📦 **Ubuntu 安装脚本** - 新增 `install.sh` 一键安装脚本
-- 🔧 **Ubuntu 管理脚本** - 新增 `manage.sh` 管理脚本
-- 🐛 **虚拟环境兼容** - 优化虚拟环境检测逻辑
+#### 📦 新增模块：
+- `core/exceptions.py` - 自定义异常类
+- `core/api_client.py` - API 客户端（带重试、限流、连接池）
+- `core/cache_manager.py` - 缓存管理器（LRU + Disk + Hybrid）
+- `core/thread_pool.py` - 线程池工具（异步化同步 IO）
+- `core/monitoring.py` - API 监控器
+- `commands/auth_commands.py` - 认证相关命令
+- `commands/query_commands.py` - 查询相关命令
+- `commands/other_commands.py` - 其他命令
 
-### v1.9.0 - 极速渲染大升级！🚀
+> 💖 **使用小贴士**：现在本猪更稳定、更快速啦！所有 P0 优先级的问题都解决了喵！后续本猪会继续优化其他功能~ ヽ(✿ﾟ▽ﾟ)ノ
 
-**嗖嗖嗖~ 渲染速度飞起来啦！** ⚡
+### v1.9.6 - 轻量版本来啦！🚀✨
 
-- 🚀 **多线程并行加载** - 4个线程同时加载30张曲绘，速度提升300%！
-- 💾 **智能缓存系统** - 处理好的曲绘都缓存起来，下次用直接拿，超快！
-- 🎨 **快速渲染模式** - 简化绘制流程，保留核心效果，渲染时间减半！
-- 🖼️ **背景图缓存** - 模糊处理好的背景图直接复用，不用每次都重新搞
-- ⚡ **数据提取优化** - 去掉繁琐的日志，代码跑得飞快~
-- 🐧 **跨平台优化** - Ubuntu、Debian、CentOS 都能愉快玩耍啦！
+**国内用户福音！下载速度飞起来啦！** 🎉
 
-### v1.8.0 - 发光大更新！✨
+为了解决国内小伙伴访问 GitHub 网速慢的问题，本猪推出了轻量版本的插件！
 
-**bling bling 的效果来啦！** 💫
+**这次更新了什么？**
 
-- ✨ **发光文字效果** - 歌曲信息、底部标识都加上了超酷的淡蓝色发光！
-- 🎖️ **评级系统** - 自动计算并显示 φ/V/S/A/B/C/F 评级！
-  - φ (Phi)：满分 1000000 才能拿到哦～超稀有！
-  - V (Full Combo)：FC 玩家的专属徽章，超帅！
-- 🎨 **曲绘匹配优化** - 三级匹配策略，再也不怕找不到曲绘啦！
-- 🖼️ **背景图支持** - 使用自定义背景，还能模糊+暗化，超有氛围感~
+- 📦 **轻量版本** - 插件本体更小，资源包单独下载
+- 🚀 **国内云盘下载** - 提供 123 云盘下载链接，速度杠杠的！
+- 📄 **文档更新** - README 新增轻量版本下载指南
+- 🌟 **使用更方便** - 解压资源包到插件目录即可使用
 
-### v1.7.0 - 曲绘自动更新来啦！
+**下载链接：** [https://www.123865.com/s/42S9vd-iMmtv](https://www.123865.com/s/42S9vd-iMmtv)
 
-**再也不用到处找曲绘了！** 🎨
-
-- ✅ **曲绘自动更新** - 自动从 GitHub 下载最新曲绘
-- ✅ **增量更新** - 只下载新文件，超省流量！
-- ✅ **代理支持** - 国内也能愉快下载
-
-### v1.6.0 - SVG 转换大升级！
-- ✅ **纯 Python SVG 转换器** - 跨平台支持！
-- ✅ **本地曲绘自动加载** - 自动匹配并显示本地曲绘
-- ✅ **智能字体加载** - 自动检测系统字体
-
-### v1.5.0 - Best30 改用 API SVG！
-- ✅ `/phi_b30` 命令改为调用 API 直接生成 SVG
-
-### v1.4.0 - API 文档同步更新！
-- ✅ 同步更新 Phigros Query 开放平台 API
-
-### v1.3.0 - Best30 来啦！
-- ✅ 新增 Best30 成绩图功能
-
-### v1.2.0 - API 版扫码登录！
-- ✅ 使用 Phigros Query API 实现扫码登录
-
-### v1.1.0 - 绑定功能来啦！
-- ✅ 新增账号绑定功能
-
-### v1.0.0 - 初次见面！
-- ✅ 出生啦！基础功能全都有
+> 💖 **使用小贴士**：国内用户建议使用轻量版本，下载更快更稳定！
 
 ---
 
 ## 📄 许可证
 
-MIT License - 随便用，但出了问题别找我哦（逃）
+MIT License - 随便用，但出了问题别找本猪哦（逃）
 
 ---
 
@@ -404,7 +409,7 @@ MIT License - 随便用，但出了问题别找我哦（逃）
 
 ### 🎵 打歌快乐，RKS 飞涨！🎵
 
-*——来自空间站「塔弦」的 Phigros Query插件*
+*——来自空间站「塔弦」的 Phigros Query 插件*
 
 **Made with ❤️ by 飞翔的死猪**
 

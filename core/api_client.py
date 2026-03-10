@@ -17,6 +17,9 @@ from .exceptions import (
     RateLimitError,
     ValidationError
 )
+from .cache_manager import HybridCache
+from .monitoring import monitor_api_call, api_monitor
+from pathlib import Path
 
 
 def retry(
@@ -138,7 +141,8 @@ class PhigrosAPIClient:
         pool_size: int = 50,
         pool_per_host: int = 20,
         max_requests: int = 60,
-        window_seconds: int = 60
+        window_seconds: int = 60,
+        cache_dir: Optional[Path] = None
     ):
         """
         Args:
@@ -149,6 +153,7 @@ class PhigrosAPIClient:
             pool_per_host: 每个主机的连接数
             max_requests: 限流最大请求数
             window_seconds: 限流时间窗口（秒）
+            cache_dir: 缓存目录
         """
         self.base_url = base_url.rstrip("/")
         self.api_token = api_token
@@ -157,6 +162,8 @@ class PhigrosAPIClient:
         self.pool_size = pool_size
         self.pool_per_host = pool_per_host
         self.rate_limiter = RateLimiter(max_requests, window_seconds)
+        self.cache: Optional[HybridCache] = None
+        self.cache_dir = cache_dir
 
     async def initialize(self):
         """初始化 API 客户端，建立连接池"""
@@ -180,6 +187,17 @@ class PhigrosAPIClient:
             headers={"User-Agent": "PhigrosQueryBot/2.0.0"}
         )
 
+        # 初始化缓存
+        if self.cache_dir:
+            self.cache = HybridCache(
+                cache_dir=self.cache_dir,
+                lru_capacity=1000,
+                lru_ttl=300,  # 5分钟
+                disk_ttl=3600,  # 1小时
+                disk_max_size=1000
+            )
+            logger.info("💾 API 缓存初始化成功")
+
         logger.info("🚀 Phigros API 客户端初始化成功")
 
     async def terminate(self):
@@ -196,6 +214,7 @@ class PhigrosAPIClient:
         return headers
 
     @retry(max_attempts=3, delay=1.0, backoff_factor=2.0)
+    @monitor_api_call()
     async def _make_request(
         self,
         method: str,
@@ -298,15 +317,48 @@ class PhigrosAPIClient:
                 taptap_version
             )
 
-        return await self._make_request(
-            method="POST",
-            endpoint="/save",
-            params={"calculate_rks": "true" if calculate_rks else "false"},
-            json_data={
-                "sessionToken": session_token,
-                "taptapVersion": taptap_version
-            }
-        )
+        # 生成缓存键
+        cache_key = f"save_{session_token[:8]}_{taptap_version}_{calculate_rks}"
+
+        # 如果有缓存，尝试从缓存获取
+        if self.cache:
+            try:
+                async def fetch_data():
+                    return await self._make_request(
+                        method="POST",
+                        endpoint="/save",
+                        params={"calculate_rks": "true" if calculate_rks else "false"},
+                        json_data={
+                            "sessionToken": session_token,
+                            "taptapVersion": taptap_version
+                        }
+                    )
+
+                return await self.cache.get_or_set(cache_key, fetch_data)
+            except (NetworkError, PhigrosAPIError) as e:
+                # API 故障，尝试从缓存获取
+                logger.warning(f"API 故障，尝试从缓存获取数据: {e}")
+                cached_data = await self.cache.lru_cache.get(cache_key)
+                if cached_data:
+                    logger.info("✅ 从缓存成功获取数据")
+                    return cached_data
+                cached_data = await self.cache.disk_cache.get(cache_key)
+                if cached_data:
+                    logger.info("✅ 从磁盘缓存成功获取数据")
+                    return cached_data
+                # 缓存也没有数据，重新抛出异常
+                raise
+        else:
+            # 没有缓存，直接调用 API
+            return await self._make_request(
+                method="POST",
+                endpoint="/save",
+                params={"calculate_rks": "true" if calculate_rks else "false"},
+                json_data={
+                    "sessionToken": session_token,
+                    "taptapVersion": taptap_version
+                }
+            )
 
     async def get_rks_history(
         self,
@@ -334,15 +386,48 @@ class PhigrosAPIClient:
         if offset < 0:
             raise ValidationError("offset 不能为负数", "offset", offset)
 
-        return await self._make_request(
-            method="POST",
-            endpoint="/rks/history",
-            json_data={
-                "auth": {"sessionToken": session_token},
-                "limit": limit,
-                "offset": offset
-            }
-        )
+        # 生成缓存键
+        cache_key = f"rks_history_{session_token[:8]}_{limit}_{offset}"
+
+        # 如果有缓存，尝试从缓存获取
+        if self.cache:
+            try:
+                async def fetch_data():
+                    return await self._make_request(
+                        method="POST",
+                        endpoint="/rks/history",
+                        json_data={
+                            "auth": {"sessionToken": session_token},
+                            "limit": limit,
+                            "offset": offset
+                        }
+                    )
+
+                return await self.cache.get_or_set(cache_key, fetch_data)
+            except (NetworkError, PhigrosAPIError) as e:
+                # API 故障，尝试从缓存获取
+                logger.warning(f"API 故障，尝试从缓存获取 RKS 历史数据: {e}")
+                cached_data = await self.cache.lru_cache.get(cache_key)
+                if cached_data:
+                    logger.info("✅ 从缓存成功获取 RKS 历史数据")
+                    return cached_data
+                cached_data = await self.cache.disk_cache.get(cache_key)
+                if cached_data:
+                    logger.info("✅ 从磁盘缓存成功获取 RKS 历史数据")
+                    return cached_data
+                # 缓存也没有数据，重新抛出异常
+                raise
+        else:
+            # 没有缓存，直接调用 API
+            return await self._make_request(
+                method="POST",
+                endpoint="/rks/history",
+                json_data={
+                    "auth": {"sessionToken": session_token},
+                    "limit": limit,
+                    "offset": offset
+                }
+            )
 
     async def get_bestn_image(
         self,
@@ -374,15 +459,51 @@ class PhigrosAPIClient:
         if theme not in ["black", "white"]:
             raise ValidationError("theme 必须是 'black' 或 'white'", "theme", theme)
 
-        return await self._make_request(
-            method="POST",
-            endpoint="/image/bn",
-            params={"format": format},
-            json_data={
-                "sessionToken": session_token,
-                "taptapVersion": taptap_version,
-                "n": n,
-                "theme": theme
-            },
-            return_raw=True
-        )
+        # 生成缓存键
+        cache_key = f"bestn_image_{session_token[:8]}_{taptap_version}_{n}_{theme}_{format}"
+
+        # 如果有缓存，尝试从缓存获取
+        if self.cache:
+            try:
+                async def fetch_data():
+                    return await self._make_request(
+                        method="POST",
+                        endpoint="/image/bn",
+                        params={"format": format},
+                        json_data={
+                            "sessionToken": session_token,
+                            "taptapVersion": taptap_version,
+                            "n": n,
+                            "theme": theme
+                        },
+                        return_raw=True
+                    )
+
+                return await self.cache.get_or_set(cache_key, fetch_data)
+            except (NetworkError, PhigrosAPIError) as e:
+                # API 故障，尝试从缓存获取
+                logger.warning(f"API 故障，尝试从缓存获取 BestN 图片: {e}")
+                cached_data = await self.cache.lru_cache.get(cache_key)
+                if cached_data:
+                    logger.info("✅ 从缓存成功获取 BestN 图片")
+                    return cached_data
+                cached_data = await self.cache.disk_cache.get(cache_key)
+                if cached_data:
+                    logger.info("✅ 从磁盘缓存成功获取 BestN 图片")
+                    return cached_data
+                # 缓存也没有数据，重新抛出异常
+                raise
+        else:
+            # 没有缓存，直接调用 API
+            return await self._make_request(
+                method="POST",
+                endpoint="/image/bn",
+                params={"format": format},
+                json_data={
+                    "sessionToken": session_token,
+                    "taptapVersion": taptap_version,
+                    "n": n,
+                    "theme": theme
+                },
+                return_raw=True
+            )
