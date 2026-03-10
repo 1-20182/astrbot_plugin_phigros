@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  phigros-plugin:
+    build: .
+    image: phigros-plugin:latest
+    container_name: phigros-plugin
+    restart: unless-stopped
+    volumes:
+      - ./ILLUSTRATION:/app/ILLUSTRATION
+      - ./AVATAR:/app/AVATAR
+      - ./VideoClip:/app/VideoClip
+      - ./output:/app/output
+      - ./backups:/app/backups
+      - ./user_data.json:/app/user_data.json
+    environment:
+      - PHIGROS_API_TOKEN=${PHIGROS_API_TOKEN:-}
+      - PHIGROS_BASE_URL=${PHIGROS_BASE_URL:-https://r0semi.xtower.site/api/v1/open}
+      - PHIGROS_ENABLE_RENDERER=${PHIGROS_ENABLE_RENDERER:-true}
+      - PHIGROS_ILLUSTRATION_PATH=${PHIGROS_ILLUSTRATION_PATH:-/app/ILLUSTRATION}
+      - PHIGROS_IMAGE_QUALITY=${PHIGROS_IMAGE_QUALITY:-95}
+      - PHIGROS_DEFAULT_TAPTAP_VERSION=${PHIGROS_DEFAULT_TAPTAP_VERSION:-cn}
+      - PHIGROS_DEFAULT_SEARCH_LIMIT=${PHIGROS_DEFAULT_SEARCH_LIMIT:-5}
+      - PHIGROS_DEFAULT_HISTORY_LIMIT=${PHIGROS_DEFAULT_HISTORY_LIMIT:-10}
+      - PHIGROS_ILLUSTRATION_UPDATE_PROXY=${PHIGROS_ILLUSTRATION_UPDATE_PROXY:-}
+    # 网络设置（如果需要）
+    # networks:
+    #   - astrbot-network
+
+# 网络定义（如果需要）
+# networks:
+#   astrbot-network:
+#     external: true

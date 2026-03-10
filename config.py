@@ -1,14 +1,17 @@
 """
 ⚙️ 配置常量模块
 
-存放所有配置相关的常量，支持环境变量覆盖
+存放所有配置相关的常量，支持三层配置优先级：
+1. 环境变量（最高优先级）
+2. 插件配置（从WebUI或配置文件获取）
+3. 默认值（最低优先级）
 """
 
 import os
-from typing import Optional
+from typing import Optional, Dict, Any
 
 class ConfigManager:
-    """配置管理器，支持环境变量和默认值"""
+    """配置管理器，支持三层配置优先级"""
     
     @staticmethod
     def get_env_var(key: str, default: str = "") -> str:
@@ -40,6 +43,55 @@ class ConfigManager:
         """获取布尔配置"""
         value = ConfigManager.get_env_var(key, str(default)).lower()
         return value in ('true', '1', 'yes', 'y', 'on')
+    
+    @staticmethod
+    def get_config(config: Dict[str, Any], key: str, default: Any, config_key: Optional[str] = None) -> Any:
+        """获取配置，支持三层优先级
+        
+        Args:
+            config: 插件配置字典
+            key: 环境变量键名
+            default: 默认值
+            config_key: 插件配置中的键名（如果与环境变量键名不同）
+        
+        Returns:
+            配置值
+        """
+        # 1. 首先尝试从环境变量获取
+        if isinstance(default, bool):
+            env_value = ConfigManager.get_bool(key, default)
+        elif isinstance(default, int):
+            env_value = ConfigManager.get_int(key, default)
+        else:
+            env_value = ConfigManager.get_env_var(key, str(default) if default is not None else "")
+            # 如果默认值不是字符串，尝试转换
+            if default is not None and not isinstance(default, str):
+                try:
+                    if isinstance(default, (int, float)):
+                        env_value = type(default)(env_value)
+                except (ValueError, TypeError):
+                    pass
+        
+        # 如果环境变量有值且与默认值类型相同，返回环境变量值
+        if (isinstance(env_value, type(default)) or 
+            (isinstance(default, (int, float)) and isinstance(env_value, (int, float)))):
+            if env_value != default:
+                import logging
+                logging.info(f"从环境变量获取配置: {key} = {env_value}")
+            return env_value
+        
+        # 2. 尝试从插件配置获取
+        config_key = config_key or key
+        if config and config_key in config:
+            config_value = config[config_key]
+            if (isinstance(config_value, type(default)) or 
+                (isinstance(default, (int, float)) and isinstance(config_value, (int, float)))):
+                import logging
+                logging.info(f"从插件配置获取配置: {config_key} = {config_value}")
+            return config_value
+        
+        # 3. 返回默认值
+        return default
 
 # API 配置
 BASE_URL = ConfigManager.get_env_var("BASE_URL", "https://r0semi.xtower.site/api/v1/open")

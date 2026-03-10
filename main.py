@@ -18,6 +18,7 @@ from astrbot.api import logger
 
 # 导入配置
 from .config import (
+    ConfigManager,
     BASE_URL, DEFAULT_API_TOKEN,
     HTTP_TIMEOUT, HTTP_CONNECT_TIMEOUT, HTTP_SOCK_READ_TIMEOUT,
     HTTP_POOL_SIZE, HTTP_POOL_PER_HOST,
@@ -25,6 +26,12 @@ from .config import (
     DEFAULT_SEARCH_LIMIT, DEFAULT_HISTORY_LIMIT,
     CACHE_TTL, QR_LOGIN_TIMEOUT
 )
+
+# 导入核心模块
+from .core import PhigrosAPIClient, HybridCache
+
+# 导入命令模块
+from .commands import AuthCommands, QueryCommands, OtherCommands
 
 # 导入工具函数
 from .utils import (
@@ -108,14 +115,18 @@ class UserDataManager:
     
     帮你保管 sessionToken，绑定一次，永久免输！
     数据存在本地，安全又可靠~ 🔒
+    支持自动备份功能，防止数据丢失
     """
 
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
         self.data_file = data_dir / "user_data.json"
+        self.backup_dir = data_dir / "backups"
         self._data: Dict[str, Dict[str, str]] = {}
         self._lock = None  # 异步锁，在 initialize 中初始化
         self._load_data()
+        # 初始化备份目录
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
 
     async def initialize(self):
         """初始化异步锁"""
@@ -130,9 +141,101 @@ class UserDataManager:
                 logger.info(f"已加载 {len(self._data)} 个用户的数据")
             except Exception as e:
                 logger.error(f"加载用户数据失败: {e}")
-                self._data = {}
+                # 尝试从备份恢复
+                if self._restore_from_backup():
+                    logger.info("从备份恢复数据成功")
+                else:
+                    self._data = {}
         else:
-            self._data = {}
+            # 尝试从备份恢复
+            if self._restore_from_backup():
+                logger.info("从备份恢复数据成功")
+            else:
+                self._data = {}
+
+    def _create_backup(self):
+        """创建用户数据备份"""
+        try:
+            if not self.data_file.exists():
+                return
+            
+            # 确保备份目录存在
+            self.backup_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 生成备份文件名，包含时间戳
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_file = self.backup_dir / f"user_data_{timestamp}.json"
+            
+            # 复制数据到备份文件
+            import shutil
+            shutil.copy2(self.data_file, backup_file)
+            logger.info(f"✅ 创建用户数据备份: {backup_file.name}")
+            
+            # 清理旧备份
+            self._clean_old_backups()
+        except Exception as e:
+            logger.error(f"创建备份失败: {e}")
+    
+    def _clean_old_backups(self):
+        """清理旧备份，保留最近7天的备份"""
+        try:
+            import os
+            import time
+            
+            # 获取所有备份文件
+            backup_files = []
+            for file in self.backup_dir.iterdir():
+                if file.is_file() and file.name.startswith("user_data_") and file.name.endswith(".json"):
+                    backup_files.append(file)
+            
+            # 按修改时间排序（最新的在前）
+            backup_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+            
+            # 保留最近7天的备份
+            days_to_keep = 7
+            cutoff_time = time.time() - (days_to_keep * 24 * 3600)
+            
+            for file in backup_files:
+                if file.stat().st_mtime < cutoff_time:
+                    os.remove(file)
+                    logger.info(f"🗑️ 清理旧备份: {file.name}")
+        except Exception as e:
+            logger.error(f"清理旧备份失败: {e}")
+    
+    def _restore_from_backup(self):
+        """从最新备份恢复数据"""
+        try:
+            # 获取所有备份文件
+            backup_files = []
+            for file in self.backup_dir.iterdir():
+                if file.is_file() and file.name.startswith("user_data_") and file.name.endswith(".json"):
+                    backup_files.append(file)
+            
+            if not backup_files:
+                logger.warning("没有找到备份文件")
+                return False
+            
+            # 按修改时间排序，取最新的备份
+            backup_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+            latest_backup = backup_files[0]
+            
+            logger.info(f"🔄 从备份恢复数据: {latest_backup.name}")
+            
+            # 读取备份数据
+            with open(latest_backup, 'r', encoding='utf-8') as f:
+                backup_data = json.load(f)
+            
+            # 保存到主文件
+            with open(self.data_file, 'w', encoding='utf-8') as f:
+                json.dump(backup_data, f, ensure_ascii=False, indent=2)
+            
+            # 重新加载数据
+            self._data = backup_data
+            logger.info(f"✅ 从备份恢复成功，加载了 {len(self._data)} 个用户的数据")
+            return True
+        except Exception as e:
+            logger.error(f"从备份恢复失败: {e}")
+            return False
 
     def _save_data(self):
         """保存用户数据到文件"""
@@ -150,6 +253,9 @@ class UserDataManager:
                 # 设置文件权限
                 if os.name != 'nt':
                     os.chmod(self.data_file, stat.S_IRUSR | stat.S_IWUSR)
+                
+                # 创建备份
+                self._create_backup()
             finally:
                 if os.name != 'nt':
                     os.umask(old_umask)
@@ -253,8 +359,9 @@ class PhigrosPlugin(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context, config)
         self.session: Optional[aiohttp.ClientSession] = None
-        self.api_token: Optional[str] = None
+        self.api_client: Optional[PhigrosAPIClient] = None
         self.renderer: Optional[PhigrosRenderer] = None
+        self.cache: Optional[HybridCache] = None
 
         # 使用插件目录作为数据目录（避免路径问题）
         self.data_dir: Path = Path(__file__).parent
@@ -270,43 +377,99 @@ class PhigrosPlugin(Star):
         self.plugin_config = config or {}
         logger.info(f"Phigros 插件配置: {self.plugin_config}")
 
+        # 初始化命令处理器
+        self.auth_commands = AuthCommands(self)
+        self.query_commands = QueryCommands(self)
+        self.other_commands = OtherCommands(self)
+
+        # 暴露模块可用性到实例属性
+        self.SVG_CONVERTER_AVAILABLE = SVG_CONVERTER_AVAILABLE
+        self.API_LOGIN_AVAILABLE = API_LOGIN_AVAILABLE
+        self.HELP_IMAGE_GENERATOR_AVAILABLE = HELP_IMAGE_GENERATOR_AVAILABLE
+        self.VIDEO_SENDER_AVAILABLE = VIDEO_SENDER_AVAILABLE
+        self.logger = logger
+        self.base_url = BASE_URL
+        
+        # 导入监控模块
+        from .core.monitoring import api_monitor
+        self.api_monitor = api_monitor
+
     async def initialize(self):
         """插件初始化"""
         # 初始化用户数据管理器的锁
         await self.user_data.initialize()
 
-        # 设置 HTTP 请求超时和连接池
-        timeout = aiohttp.ClientTimeout(total=30, connect=10, sock_read=20)
-        connector = aiohttp.TCPConnector(
-            limit=50,  # 连接池大小
-            limit_per_host=20,  # 每个主机的连接数
-            enable_cleanup_closed=True,  # 清理关闭的连接
-            force_close=False,  # 复用连接
-        )
-        self.session = aiohttp.ClientSession(
-            timeout=timeout,
-            connector=connector,
-            headers={"User-Agent": "PhigrosQueryBot/1.8.0"}
-        )
-
         # 从插件配置中读取 API Token，如果没有则使用默认 Token
-        self.api_token = self.plugin_config.get("phigros_api_token", DEFAULT_API_TOKEN)
+        self.api_token = ConfigManager.get_config(
+            self.plugin_config, 
+            "API_TOKEN", 
+            DEFAULT_API_TOKEN, 
+            "phigros_api_token"
+        )
         if self.api_token:
             logger.info("Phigros API Token 已配置")
         else:
             logger.warning("Phigros API Token 未配置，请在 WebUI 中设置")
 
         # 读取其他配置
-        self.enable_renderer = self.plugin_config.get("enable_renderer", True)
-        self.illustration_path = self.plugin_config.get("illustration_path", "./ILLUSTRATION")
-        self.image_quality = self.plugin_config.get("image_quality", 95)
-        self.default_taptap_version = self.plugin_config.get("default_taptap_version", "cn")
-        self.default_search_limit = self.plugin_config.get("default_search_limit", 5)
-        self.default_history_limit = self.plugin_config.get("default_history_limit", 10)
+        self.enable_renderer = ConfigManager.get_config(
+            self.plugin_config, 
+            "ENABLE_RENDERER", 
+            True, 
+            "enable_renderer"
+        )
+        self.illustration_path = ConfigManager.get_config(
+            self.plugin_config, 
+            "ILLUSTRATION_PATH", 
+            "./ILLUSTRATION", 
+            "illustration_path"
+        )
+        self.image_quality = ConfigManager.get_config(
+            self.plugin_config, 
+            "IMAGE_QUALITY", 
+            95, 
+            "image_quality"
+        )
+        self.default_taptap_version = ConfigManager.get_config(
+            self.plugin_config, 
+            "TAPTAP_VERSION", 
+            "cn", 
+            "default_taptap_version"
+        )
+        self.default_search_limit = ConfigManager.get_config(
+            self.plugin_config, 
+            "SEARCH_LIMIT", 
+            5, 
+            "default_search_limit"
+        )
+        self.default_history_limit = ConfigManager.get_config(
+            self.plugin_config, 
+            "HISTORY_LIMIT", 
+            10, 
+            "default_history_limit"
+        )
 
-        # 初始化 API 缓存（TTL 5 分钟）
-        self._api_cache = SimpleCache(ttl=300)
-        logger.info("🚀 API 缓存已初始化")
+        # 初始化 API 客户端
+        self.api_client = PhigrosAPIClient(
+            base_url=BASE_URL,
+            api_token=self.api_token,
+            timeout=HTTP_TIMEOUT,
+            pool_size=HTTP_POOL_SIZE,
+            pool_per_host=HTTP_POOL_PER_HOST,
+            cache_dir=self.output_dir / "api_cache"
+        )
+        await self.api_client.initialize()
+        logger.info("🚀 Phigros API 客户端初始化成功")
+
+        # 初始化混合缓存
+        self.cache = HybridCache(
+            cache_dir=self.output_dir / "cache",
+            lru_capacity=1000,
+            lru_ttl=300,  # 5分钟
+            disk_ttl=3600,  # 1小时
+            disk_max_size=1000
+        )
+        logger.info("� 混合缓存初始化成功")
 
         # 初始化渲染器
         logger.info(f"🔧 开始初始化渲染器: ADVANCED_RENDERER_AVAILABLE={ADVANCED_RENDERER_AVAILABLE}, enable_renderer={self.enable_renderer}")
@@ -337,7 +500,12 @@ class PhigrosPlugin(Star):
             try:
                 illust_path = resolve_illustration_path(Path(__file__).parent, self.illustration_path)
                 avatar_path = Path(__file__).parent / "AVATAR"
-                renderer_mode = self.plugin_config.get("renderer_mode", "auto")
+                renderer_mode = ConfigManager.get_config(
+                    self.plugin_config, 
+                    "RENDERER_MODE", 
+                    "auto", 
+                    "renderer_mode"
+                )
                 logger.info(f"🎨 创建 AdvancedPhigrosRenderer，模式: {renderer_mode}")
                 self.renderer = AdvancedPhigrosRenderer(
                     plugin_dir=Path(__file__).parent,
@@ -371,7 +539,12 @@ class PhigrosPlugin(Star):
 
         # 自动更新曲绘（在后台运行，不阻塞初始化）
         if ILLUSTRATION_UPDATER_AVAILABLE:
-            self.enable_auto_update = self.plugin_config.get("enable_auto_update_illustration", True)
+            self.enable_auto_update = ConfigManager.get_config(
+                self.plugin_config, 
+                "ENABLE_AUTO_UPDATE_ILLUSTRATION", 
+                True, 
+                "enable_auto_update_illustration"
+            )
             if self.enable_auto_update:
                 asyncio.create_task(self._auto_update_illustrations())
             else:
@@ -384,7 +557,12 @@ class PhigrosPlugin(Star):
             illust_path = resolve_illustration_path(plugin_dir, self.illustration_path)
             
             # 获取代理设置（从配置中读取）
-            proxy = self.plugin_config.get("illustration_update_proxy", "")
+            proxy = ConfigManager.get_config(
+                self.plugin_config, 
+                "ILLUSTRATION_UPDATE_PROXY", 
+                "", 
+                "illustration_update_proxy"
+            )
             
             logger.info("🎨 正在检查曲绘更新...")
             success, fail, status = await auto_update_illustrations(
@@ -405,69 +583,10 @@ class PhigrosPlugin(Star):
 
     async def terminate(self):
         """插件销毁"""
-        if self.session:
-            await self.session.close()
+        if self.api_client:
+            await self.api_client.terminate()
         if self.renderer:
             await self.renderer.terminate()
-
-    def _get_headers(self) -> Dict[str, str]:
-        """获取请求头"""
-        headers = {"Content-Type": "application/json"}
-        if self.api_token:
-            headers["X-OpenApi-Token"] = self.api_token
-        return headers
-
-    async def _make_request(
-        self, method: str, endpoint: str, params: Optional[Dict] = None, json_data: Optional[Dict] = None,
-        return_raw: bool = False
-    ) -> Any:
-        """发起 HTTP 请求
-        
-        Args:
-            method: HTTP 方法
-            endpoint: API 端点
-            params: URL 参数
-            json_data: JSON 请求体
-            return_raw: 是否返回原始响应内容（用于图片等非 JSON 响应）
-        """
-        if not self.session:
-            raise Exception("HTTP 会话未初始化")
-
-        url = f"{BASE_URL}{endpoint}"
-        try:
-            async with self.session.request(
-                method=method,
-                url=url,
-                headers=self._get_headers(),
-                params=params,
-                json=json_data,
-            ) as response:
-                # 首先检查响应状态
-                if response.status != 200:
-                    # 尝试读取错误信息
-                    try:
-                        error_data = await response.json()
-                        error_msg = error_data.get("detail", f"请求失败，状态码: {response.status}")
-                    except (json.JSONDecodeError, aiohttp.ContentTypeError):
-                        # 非 JSON 响应，读取文本
-                        error_text = await response.text()
-                        error_msg = f"请求失败，状态码: {response.status}，响应: {error_text[:200]}"
-                    raise Exception(error_msg)
-
-                # 如果请求原始内容，直接返回文本
-                if return_raw:
-                    return await response.text()
-
-                # 成功响应，解析 JSON
-                try:
-                    data = await response.json()
-                    return data
-                except json.JSONDecodeError as e:
-                    raise Exception(f"解析响应数据失败: {str(e)}")
-        except aiohttp.ClientError as e:
-            raise Exception(f"网络请求错误: {str(e)}")
-        except asyncio.TimeoutError:
-            raise Exception("请求超时，请稍后重试")
 
     async def _render_and_send(
         self, event: AstrMessageEvent, 
@@ -639,1076 +758,49 @@ class PhigrosPlugin(Star):
             logger.error(f"提取 Best30 数据失败: {e}")
             return None
 
-    # ==================== 命令: 绑定用户数据 ====================
-    @filter.command("phi_bind")
-    async def bind_user(self, event: AstrMessageEvent, session_token: str, taptap_version: str = "cn"):
+    # ==================== 命令: 监控指标 ====================
+    @filter.command("phi_metrics")
+    async def show_metrics(self, event: AstrMessageEvent):
         """
-        绑定 Phigros 账号（保存 sessionToken）
-        用法: /phi_bind <sessionToken> [taptapVersion]
-        示例: /phi_bind uhrmqs8v0mmn0ikzxqgozrctr cn
-        """
-        try:
-            platform, user_id = self._get_user_id(event)
-            
-            # 验证 token 是否有效
-            test_data = await self._make_request(
-                method="POST",
-                endpoint="/save",
-                params={"calculate_rks": "true"},
-                json_data={"sessionToken": session_token, "taptapVersion": taptap_version},
-            )
-            
-            # 保存用户数据
-            await self.user_data.bind_user(platform, user_id, session_token, taptap_version)
-            
-            # 获取用户存档摘要
-            summary = test_data.get("summary", {})
-            rks = summary.get("rks", "N/A")
-            
-            yield event.plain_result(
-                f"✅ 绑定成功！\n"
-                f"📊 当前 RKS: {rks}\n"
-                f"🎮 版本: {taptap_version}\n"
-                f"💡 现在可以直接使用 /phi_save 和 /phi_rks_history 查询了~"
-            )
-            
-        except Exception as e:
-            yield event.plain_result(f"❌ 绑定失败: {str(e)}\n请检查 sessionToken 是否正确")
-
-    # ==================== 命令: TapTap 扫码登录 ====================
-    @filter.command("phi_qrlogin")
-    async def qr_login(self, event: AstrMessageEvent, taptap_version: str = "cn"):
-        """
-        使用 TapTap 扫码登录（自动获取 sessionToken）
-        用法: /phi_qrlogin [taptapVersion]
-        示例: /phi_qrlogin cn
-        """
-        if not API_LOGIN_AVAILABLE:
-            yield event.plain_result(
-                "❌ 扫码登录功能不可用\n"
-                "💡 请检查插件是否完整安装"
-            )
-            return
-
-        yield event.plain_result("⏳ 正在获取二维码，请稍候...")
-
-        try:
-            # 使用 API 版本的登录管理器
-            login_manager = TapTapLoginManagerAPI(
-                base_url=BASE_URL,
-                api_token=self.api_token or "",
-                output_dir=self.output_dir,
-                session=self.session
-            )
-
-            # 生成二维码
-            qr_base64 = await login_manager.generate_qr_code(taptap_version)
-            logger.info(f"🔍 二维码生成返回: {'成功' if qr_base64 else '失败'}")
-            logger.info(f"🔍 登录管理器二维码路径: {login_manager.qr_code_path}")
-            logger.info(f"🔍 本地二维码路径: {self.output_dir / 'taptap_qr.png'}")
-
-            if not qr_base64:
-                yield event.plain_result(
-                    "❌ 获取二维码失败\n"
-                    "💡 可能原因：\n"
-                    "1. API Token 无效或未配置\n"
-                    "2. 网络连接问题\n"
-                    "3. 请检查日志了解详情\n\n"
-                    "建议使用 /phi_bind <token> 手动绑定"
-                )
-                return
-
-            # 发送二维码图片和登录提示
-            qr_path = self.output_dir / "taptap_qr.png"
-            logger.info(f"🔍 准备发送二维码，路径: {qr_path}")
-            logger.info(f"🔍 二维码文件是否存在: {qr_path.exists()}")
-
-            if qr_path.exists():
-                file_size = qr_path.stat().st_size
-                logger.info(f"🔍 二维码文件大小: {file_size} bytes")
-                
-                try:
-                    # 方法1: 使用 fromFileSystem (推荐，跨平台兼容性好)
-                    from astrbot.api.message_components import Image
-                    abs_path = qr_path.resolve()
-                    logger.info(f"🔍 二维码绝对路径: {abs_path}")
-
-                    yield event.chain_result([
-                        Plain("📱 请使用 TapTap APP 扫描二维码登录\n"),
-                        Image.fromFileSystem(str(abs_path)),
-                        Plain("\n🌐 或访问链接: https://lilith.xtower.site/\n"
-                              "⏰ 二维码有效期 2 分钟\n"
-                              "⏳ 等待扫码中...")
-                    ])
-                    logger.info("✅ 二维码图片发送成功")
-                except Exception as e1:
-                    logger.warning(f"方法1发送二维码失败: {e1}")
-                    logger.warning(f"错误类型: {type(e1).__name__}")
-                    import traceback
-                    logger.warning(f"错误堆栈: {traceback.format_exc()}")
-                    
-                    try:
-                        # 方法2: 使用 base64 发送
-                        import base64
-                        with open(qr_path, 'rb') as f:
-                            img_base64 = base64.b64encode(f.read()).decode()
-                        logger.info(f"🔍 Base64 编码长度: {len(img_base64)}")
-                        
-                        yield event.chain_result([
-                            Plain("📱 请使用 TapTap APP 扫描二维码登录\n"),
-                            Image.fromBase64(img_base64),
-                            Plain("\n🌐 或访问链接: https://lilith.xtower.site/\n"
-                                  "⏰ 二维码有效期 2 分钟\n"
-                                  "⏳ 等待扫码中...")
-                        ])
-                        logger.info("✅ 二维码图片(base64)发送成功")
-                    except Exception as e2:
-                        logger.error(f"方法2发送二维码也失败: {e2}")
-                        logger.error(f"错误类型: {type(e2).__name__}")
-                        import traceback
-                        logger.error(f"错误堆栈: {traceback.format_exc()}")
-                        
-                        # 方法3: 只发送文字提示
-                        yield event.plain_result(
-                            f"📱 请使用 TapTap APP 扫描二维码登录\n"
-                            f"🌐 访问链接: https://lilith.xtower.site/\n"
-                            f"⏰ 二维码有效期 2 分钟\n"
-                            f"⏳ 等待扫码中..."
-                        )
-            else:
-                logger.error(f"二维码文件不存在: {qr_path}")
-                yield event.plain_result(
-                    f"📱 请使用 TapTap APP 扫描二维码登录\n"
-                    f"🌐 访问链接: https://lilith.xtower.site/\n"
-                    f"⏰ 二维码有效期 2 分钟\n"
-                    f"⏳ 等待扫码中..."
-                )
-
-            # 等待扫码
-            logger.info("开始等待用户扫码...")
-            result: LoginResult = await login_manager.wait_for_scan(timeout=120)
-
-            if result.success:
-                session_token = result.session_token
-                logger.info(f"扫码登录成功，获取到 sessionToken: {session_token[:20] if session_token else 'None'}...")
-
-                if not session_token:
-                    yield event.plain_result("❌ 登录成功但未获取到 sessionToken，请重试")
-                    return
-
-                # 自动绑定
-                platform, user_id = self._get_user_id(event)
-                await self.user_data.bind_user(platform, user_id, session_token, taptap_version)
-
-                # 验证 token 并获取 RKS
-                try:
-                    test_data = await self._make_request(
-                        method="POST",
-                        endpoint="/save",
-                        params={"calculate_rks": "true"},
-                        json_data={"sessionToken": session_token, "taptapVersion": taptap_version},
-                    )
-                    summary = test_data.get("summary", {})
-                    rks = summary.get("rks", "N/A")
-
-                    yield event.plain_result(
-                        f"🎉 扫码登录成功！\n"
-                        f"📊 当前 RKS: {rks}\n"
-                        f"🎮 版本: {taptap_version}\n"
-                        f"✅ 账号已自动绑定，现在可以直接使用 /phi_save 查询了~"
-                    )
-                except Exception as e:
-                    yield event.plain_result(
-                        f"✅ 扫码登录成功并已绑定！\n"
-                        f"⚠️ 但验证时出错: {str(e)}\n"
-                        f"💡 绑定已保存，可以直接尝试 /phi_save"
-                    )
-            else:
-                yield event.plain_result(f"❌ {result.error_message or '登录失败'}\n请重试或使用 /phi_bind <token> 手动绑定")
-
-        except Exception as e:
-            yield event.plain_result(f"❌ 扫码登录过程出错: {str(e)}")
-
-    # ==================== 命令: 解绑用户数据 ====================
-    @filter.command("phi_unbind")
-    async def unbind_user(self, event: AstrMessageEvent):
-        """
-        解绑 Phigros 账号
-        用法: /phi_unbind
-        """
-        platform, user_id = self._get_user_id(event)
-        
-        if await self.user_data.unbind_user(platform, user_id):
-            yield event.plain_result("✅ 已解绑 Phigros 账号")
-        else:
-            yield event.plain_result("❌ 你还没有绑定账号哦~")
-
-    # ==================== 命令: 获取用户存档 ====================
-    @filter.command("phi_save")
-    async def get_save(self, event: AstrMessageEvent, session_token: str = None, taptap_version: str = None):
-        """
-        获取 Phigros 云存档数据
-        用法: /phi_save [sessionToken] [taptapVersion]
-        示例: /phi_save uhrmqs8v0mmn0ikzxqgozrctr cn
-        提示: 如果已绑定账号，可以不填 sessionToken
+        显示 API 监控指标
+        用法: /phi_metrics
         """
         try:
-            # 如果没有提供 session_token，尝试从绑定数据获取
-            if session_token is None:
-                platform, user_id = self._get_user_id(event)
-                user_data = self.user_data.get_user_data(platform, user_id)
-                
-                if user_data is None:
-                    yield event.plain_result(
-                        "❌ 未提供 sessionToken 且未绑定账号\n"
-                        "💡 请使用 /phi_bind <token> 绑定账号\n"
-                        "或直接提供 token: /phi_save <token>"
-                    )
-                    return
-                
-                session_token = user_data["session_token"]
-                if taptap_version is None:
-                    taptap_version = user_data.get("taptap_version", self.default_taptap_version)
+            # 获取监控指标
+            metrics = await self.api_monitor.get_metrics()
             
-            # 使用配置的默认值
-            if taptap_version is None:
-                taptap_version = self.default_taptap_version
-            
-            data = await self._make_request(
-                method="POST",
-                endpoint="/save",
-                params={"calculate_rks": "true"},
-                json_data={"sessionToken": session_token, "taptapVersion": taptap_version},
-            )
-
-            # 使用图片渲染
-            async for result in self._render_and_send(
-                event, 
-                self.renderer.render_save_data if self.renderer else None,
-                data, 
-                f"save_{session_token[:8]}.png"
-            ):
-                yield result
-
-        except Exception as e:
-            yield event.plain_result(f"❌ 获取存档失败: {str(e)}")
-
-    # ==================== 命令: 获取 Best30 (API SVG版本) ====================
-    @filter.command("phi_b30")
-    async def get_best30(self, event: AstrMessageEvent, session_token: str = None, taptap_version: str = None, theme: str = "black"):
-        """
-        获取 Best 30 成绩图（API直接生成SVG）
-        用法: /phi_b30 [sessionToken] [taptapVersion] [theme]
-        示例: /phi_b30 或 /phi_b30 your_token cn black
-        提示: 如果已绑定账号，可以不填 sessionToken
-        """
-        try:
-            # 如果没有提供 session_token，尝试从绑定数据获取
-            if session_token is None:
-                platform, user_id = self._get_user_id(event)
-                user_data = self.user_data.get_user_data(platform, user_id)
-                
-                if user_data is None:
-                    yield event.plain_result(
-                        "❌ 未提供 sessionToken 且未绑定账号\n"
-                        "💡 请使用 /phi_qrlogin 扫码登录\n"
-                        "或使用 /phi_bind <token> 绑定账号"
-                    )
-                    return
-                
-                session_token = user_data["session_token"]
-                if taptap_version is None:
-                    taptap_version = user_data.get("taptap_version", self.default_taptap_version)
-            
-            # 使用配置的默认值
-            if taptap_version is None:
-                taptap_version = self.default_taptap_version
-            
-            # 验证主题参数
-            if theme not in ["black", "white"]:
-                theme = "black"
-            
-            yield event.plain_result("⏳ 正在查询 Best30 数据...")
-
-            # 首先尝试使用 /save API 获取数据，然后本地渲染
-            render_success = False
-            output_path = self.output_dir / f"b30_{session_token[:8]}.png"
-
-            if hasattr(self, 'renderer') and self.renderer:
-                try:
-                    # 调用 /save API 获取存档数据
-                    save_data = await self._make_request(
-                        method="POST",
-                        endpoint="/save",
-                        params={"calculate_rks": "true"},
-                        json_data={
-                            "sessionToken": session_token,
-                            "taptapVersion": taptap_version
-                        }
-                    )
-
-                    yield event.plain_result("🎨 正在渲染 Best30 图片...")
-
-                    # 提取 Best30 数据
-                    b30_data = self._extract_b30_data(save_data)
-
-                    if b30_data:
-                        render_success = await self.renderer.render_b30(b30_data, output_path)
-                    else:
-                        logger.warning("⚠️ 无法提取 Best30 数据")
-                        
-                except Exception as e:
-                    logger.error(f"使用渲染器生成图片失败: {e}")
-                    render_success = False
-            
-            # 如果渲染器失败，回退到 SVG 转换
-            convert_success = False
-            if not render_success:
-                logger.info("🔄 使用 SVG 转换作为回退方案")
-                # 调用 API 获取 SVG
-                svg_data = await self._make_request(
-                    method="POST",
-                    endpoint="/image/bn",
-                    params={"format": "svg"},
-                    json_data={
-                        "sessionToken": session_token,
-                        "taptapVersion": taptap_version,
-                        "n": 30,
-                        "theme": theme
-                    },
-                    return_raw=True
-                )
-                
-                # 保存 SVG 文件
-                svg_path = self.output_dir / f"b30_{session_token[:8]}.svg"
-                with open(svg_path, 'w', encoding='utf-8') as f:
-                    f.write(svg_data)
-                
-                # 将 SVG 转换为 PNG
-                if SVG_CONVERTER_AVAILABLE:
-                    try:
-                        plugin_dir = str(Path(__file__).parent)
-                        illust_path = str(Path(__file__).parent / self.illustration_path.replace("./", ""))
-                        convert_success = convert_svg_to_png(
-                            str(svg_path),
-                            str(output_path),
-                            illustration_path=illust_path,
-                            plugin_dir=plugin_dir
-                        )
-                    except Exception as e:
-                        logger.error(f"SVG 转换失败: {e}")
-            
-            # 发送图片或提示
-            if render_success or convert_success:
-                yield event.chain_result([
-                    Plain(f"🎵 Best30 成绩图 ({theme}主题)\n"),
-                    Image(file=str(output_path))
-                ])
-            else:
-                # 转换失败
-                yield event.plain_result(
-                    f"❌ 生成 Best30 成绩图失败\n"
-                    f"💡 请检查日志了解详细错误信息"
-                )
-
-        except Exception as e:
-            yield event.plain_result(f"❌ 获取 Best30 失败: {str(e)}")
-
-    # ==================== 命令: 获取 BestN 图片 (API 版本) ====================
-    @filter.command("phi_bn")
-    async def get_bestn_image(self, event: AstrMessageEvent, n: int = 27, theme: str = "black"):
-        """
-        获取 BestN 成绩图（API 直接生成）
-        用法: /phi_bn [n] [theme]
-        示例: /phi_bn 27 black
-        参数:
-          n: 成绩数量，建议 27 (默认)
-          theme: 主题，black 或 white (默认 black)
-        注意: 需要先绑定账号或扫码登录
-        """
-        try:
-            # 从绑定数据获取
-            platform, user_id = self._get_user_id(event)
-            user_data = self.user_data.get_user_data(platform, user_id)
-            
-            if user_data is None:
-                yield event.plain_result(
-                    "❌ 未绑定账号\n"
-                    "💡 请使用 /phi_qrlogin 扫码登录\n"
-                    "或使用 /phi_bind <token> 绑定账号"
-                )
+            if not metrics:
+                yield event.plain_result("📊 暂无监控数据")
                 return
             
-            session_token = user_data["session_token"]
-            taptap_version = user_data.get("taptap_version", self.default_taptap_version)
+            # 构建响应消息
+            msg_parts = ["📊 API 监控指标\n\n"]
             
-            # 验证参数
-            if n < 1 or n > 50:
-                yield event.plain_result("❌ n 的范围应为 1-50")
-                return
+            # 总体指标
+            overall = metrics.pop("overall", {})
+            if overall:
+                msg_parts.append("🎯 总体指标:\n")
+                msg_parts.append(f"   成功率: {overall['success_rate']}%\n")
+                msg_parts.append(f"   平均耗时: {overall['avg_duration']}s\n")
+                msg_parts.append(f"   总调用: {overall['total_calls_all_time']}\n")
+                msg_parts.append(f"   总错误: {overall['total_errors_all_time']}\n\n")
             
-            if theme not in ["black", "white"]:
-                theme = "black"
+            # 各端点指标
+            if metrics:
+                msg_parts.append("📈 各端点指标:\n")
+                for endpoint, data in metrics.items():
+                    msg_parts.append(f"   🔗 {endpoint}:\n")
+                    msg_parts.append(f"     成功率: {data['success_rate']}%\n")
+                    msg_parts.append(f"     平均耗时: {data['avg_duration']}s\n")
+                    msg_parts.append(f"     调用: {data['total_calls']}\n")
+                    msg_parts.append(f"     错误: {data['errors']}\n\n")
             
-            yield event.plain_result(f"⏳ 正在生成 Best{n} 成绩图...")
-            
-            # 调用 API 获取 SVG（返回原始文本）
-            svg_data = await self._make_request(
-                method="POST",
-                endpoint="/image/bn",
-                params={"format": "svg"},
-                json_data={
-                    "sessionToken": session_token,
-                    "taptapVersion": taptap_version,
-                    "n": n,
-                    "theme": theme
-                },
-                return_raw=True
-            )
-            
-            # 保存 SVG 文件
-            svg_path = self.output_dir / f"bn_{session_token[:8]}_{n}.svg"
-            with open(svg_path, 'w', encoding='utf-8') as f:
-                f.write(svg_data)
-            
-            # 将 SVG 转换为 PNG（QQ 不支持 SVG）
-            output_path = self.output_dir / f"bn_{session_token[:8]}_{n}.png"
-            convert_success = False
-            
-            if SVG_CONVERTER_AVAILABLE:
-                try:
-                    # 传递曲绘路径和插件目录
-                    plugin_dir = str(Path(__file__).parent)
-                    illust_path = str(Path(__file__).parent / self.illustration_path.replace("./", ""))
-                    convert_success = convert_svg_to_png(
-                        str(svg_path),
-                        str(output_path),
-                        illustration_path=illust_path,
-                        plugin_dir=plugin_dir
-                    )
-                except Exception as e:
-                    logger.error(f"SVG 转换失败: {e}")
-            else:
-                logger.warning("SVG 转换器未加载")
-
-            # 发送图片或提示
-            if convert_success:
-                yield event.chain_result([
-                    Plain(f"🎵 Best{n} 成绩图 ({theme}主题)\n"),
-                    Image(file=str(output_path))
-                ])
-            else:
-                # 转换失败，提示用户 SVG 文件位置
-                converter = get_converter() if SVG_CONVERTER_AVAILABLE else None
-                help_text = converter.install_help() if converter else "请安装 svglib: pip install svglib reportlab"
-                yield event.plain_result(
-                    f"⚠️ Best{n} 成绩图已保存为 SVG 格式\n"
-                    f"📁 文件位置: {svg_path}\n"
-                    f"💡 {help_text}"
-                )
-            
-        except Exception as e:
-            yield event.plain_result(f"❌ 获取 BestN 图片失败: {str(e)}")
-
-    # ==================== 命令: 查询 RKS 历史 ====================
-    @filter.command("phi_rks_history")
-    async def get_rks_history(self, event: AstrMessageEvent, session_token: str = None, limit: int = None):
-        """
-        查询 RKS 历史变化
-        用法: /phi_rks_history [sessionToken] [limit]
-        示例: /phi_rks_history uhrmqs8v0mmn0ikzxqgozrctr 10
-        提示: 如果已绑定账号，可以不填 sessionToken
-        """
-        try:
-            # 如果没有提供 session_token，尝试从绑定数据获取
-            if session_token is None:
-                platform, user_id = self._get_user_id(event)
-                user_data = self.user_data.get_user_data(platform, user_id)
-                
-                if user_data is None:
-                    yield event.plain_result(
-                        "❌ 未提供 sessionToken 且未绑定账号\n"
-                        "💡 请使用 /phi_bind <token> 绑定账号\n"
-                        "或直接提供 token: /phi_rks_history <token>"
-                    )
-                    return
-                
-                session_token = user_data["session_token"]
-            
-            # 使用配置的默认值
-            if limit is None:
-                limit = self.default_history_limit
-            
-            data = await self._make_request(
-                method="POST",
-                endpoint="/rks/history",
-                json_data={"auth": {"sessionToken": session_token}, "limit": limit, "offset": 0},
-            )
-
-            items = data.get("items", [])
-            total = data.get("total", 0)
-            current_rks = data.get("currentRks", 0)
-            peak_rks = data.get("peakRks", 0)
-
-            # 渲染 RKS 历史趋势图
-            if self.renderer and hasattr(self.renderer, 'render_rks_history'):
-                output_path = self.output_dir / f"rks_history_{session_token[:8]}.png"
-                render_success = await self.renderer.render_rks_history(data, output_path)
-                
-                if render_success:
-                    # 发送趋势图
-                    yield event.chain_result([
-                        Plain(f"📈 RKS 历史趋势图\n"),
-                        Image(file=str(output_path))
-                    ])
-                else:
-                    # 渲染失败，发送文本信息
-                    msg_parts = ["📈 RKS 历史记录\n"]
-                    msg_parts.append(f"📊 当前 RKS: {current_rks}\n")
-                    msg_parts.append(f"🏆 最高 RKS: {peak_rks}\n")
-                    msg_parts.append(f"📝 总记录数: {total}\n\n")
-
-                    if items:
-                        msg_parts.append("最近变化:\n")
-                        for item in items[:limit]:
-                            rks = item.get("rks", 0)
-                            jump = item.get("rksJump", 0)
-                            created = item.get("createdAt", "")[:10]
-                            jump_str = f"(+{jump})" if jump > 0 else f"({jump})" if jump < 0 else ""
-                            msg_parts.append(f"  • {created}: {rks:.4f} {jump_str}\n")
-                    else:
-                        msg_parts.append("暂无历史记录")
-
-                    yield event.plain_result("".join(msg_parts))
-            else:
-                # 渲染器不可用，发送文本信息
-                msg_parts = ["📈 RKS 历史记录\n"]
-                msg_parts.append(f"📊 当前 RKS: {current_rks}\n")
-                msg_parts.append(f"🏆 最高 RKS: {peak_rks}\n")
-                msg_parts.append(f"📝 总记录数: {total}\n\n")
-
-                if items:
-                    msg_parts.append("最近变化:\n")
-                    for item in items[:limit]:
-                        rks = item.get("rks", 0)
-                        jump = item.get("rksJump", 0)
-                        created = item.get("createdAt", "")[:10]
-                        jump_str = f"(+{jump})" if jump > 0 else f"({jump})" if jump < 0 else ""
-                        msg_parts.append(f"  • {created}: {rks:.4f} {jump_str}\n")
-                else:
-                    msg_parts.append("暂无历史记录")
-
-                yield event.plain_result("".join(msg_parts))
-
-        except Exception as e:
-            yield event.plain_result(f"❌ 查询 RKS 历史失败: {str(e)}")
-
-    # ==================== 命令: 获取排行榜 ====================
-    @filter.command("phi_leaderboard")
-    async def get_leaderboard(self, event: AstrMessageEvent):
-        """
-        获取 RKS 排行榜 Top 数据
-        用法: /phi_leaderboard
-        """
-        try:
-            data = await self._make_request(
-                method="GET",
-                endpoint="/leaderboard/rks/top",
-            )
-
-            # 使用图片渲染
-            async for result in self._render_and_send(
-                event,
-                self.renderer.render_leaderboard if self.renderer else None,
-                data,
-                "leaderboard.png"
-            ):
-                yield result
-
-        except Exception as e:
-            yield event.plain_result(f"❌ 获取排行榜失败: {str(e)}")
-
-    # ==================== 命令: 按排名区间查询 ====================
-    @filter.command("phi_rank")
-    async def get_by_rank(self, event: AstrMessageEvent, start: int = None, end: Optional[int] = None):
-        """
-        按排名区间查询玩家
-        用法: /phi_rank <start> [end]
-        示例: /phi_rank 1 10 或 /phi_rank 100
-        """
-        try:
-            # 如果没有提供start，默认查询前10名
-            if start is None:
-                start = 1
-                
-            params = {"start": start}
-            if end:
-                params["end"] = end
-            else:
-                params["count"] = 10
-
-            data = await self._make_request(
-                method="GET",
-                endpoint="/leaderboard/rks/by-rank",
-                params=params,
-            )
-
-            items = data.get("items", [])
-
-            msg_parts = [f"📊 排名 {start}-{end or start+9} 的玩家\n\n"]
-
-            for item in items:
-                rank = item.get("rank", 0)
-                alias = item.get("alias", "未知")
-                score = item.get("score", 0)
-                msg_parts.append(f"  {rank}. {alias} - RKS: {score:.4f}\n")
-
             yield event.plain_result("".join(msg_parts))
-
-        except Exception as e:
-            yield event.plain_result(f"❌ 查询排名失败: {str(e)}")
-
-    # ==================== 命令: 歌曲搜索 ====================
-    @filter.command("phi_search")
-    async def search_songs(self, event: AstrMessageEvent, keyword: str, limit: int = None):
-        """
-        搜索 Phigros 曲目
-        用法: /phi_search <关键词> [limit]
-        示例: /phi_search Originally 5
-        """
-        try:
-            # 使用配置的默认值
-            if limit is None:
-                limit = self.default_search_limit
             
-            data = await self._make_request(
-                method="GET",
-                endpoint="/songs/search",
-                params={"q": keyword, "limit": limit},
-            )
-
-            items = data.get("items", [])
-            
-            if not items:
-                yield event.plain_result(f"❌ 未找到与 '{keyword}' 相关的曲目")
-                return
-
-            # 如果有曲绘，渲染第一张歌曲的详情
-            if self.renderer and items:
-                first_song = items[0]
-                safe_keyword = sanitize_filename(keyword)
-                async for result in self._render_and_send(
-                    event,
-                    self.renderer.render_song_detail,
-                    first_song,
-                    f"song_{safe_keyword}.png"
-                ):
-                    yield result
-            else:
-                # 文本输出
-                total = data.get("total", 0)
-                msg_parts = [f"🎵 搜索 '{keyword}' 找到 {total} 首曲目\n\n"]
-
-                for item in items[:limit]:
-                    name = item.get("name", "未知")
-                    composer = item.get("composer", "未知")
-                    constants = item.get("chartConstants", {})
-
-                    msg_parts.append(f"📀 {name}\n")
-                    msg_parts.append(f"   作曲: {composer}\n")
-                    msg_parts.append(f"   定数: ")
-
-                    for diff in ["ez", "hd", "in", "at"]:
-                        val = constants.get(diff)
-                        if val is not None:
-                            msg_parts.append(f"{diff.upper()}:{val} ")
-                    msg_parts.append("\n\n")
-
-                yield event.plain_result("".join(msg_parts))
-
-        except Exception as e:
-            yield event.plain_result(f"❌ 搜索曲目失败: {str(e)}")
-
-    # ==================== 命令: 获取单曲成绩图 ====================
-    @filter.command("phi_song")
-    async def get_song_image(self, event: AstrMessageEvent, song_id: str):
-        """
-        获取指定歌曲的成绩图
-        用法: /phi_song <歌曲ID>
-        示例: /phi_song 曲名.曲师
-        提示: 使用 /phi_search 搜索歌曲获取准确的歌曲ID
-        注意: 需要先绑定账号或扫码登录
-        """
-        try:
-            # 从绑定数据获取
-            platform, user_id = self._get_user_id(event)
-            user_data = self.user_data.get_user_data(platform, user_id)
-            
-            if user_data is None:
-                yield event.plain_result(
-                    "❌ 未绑定账号\n"
-                    "💡 请使用 /phi_qrlogin 扫码登录\n"
-                    "或使用 /phi_bind <token> 绑定账号"
-                )
-                return
-            
-            session_token = user_data["session_token"]
-            taptap_version = user_data.get("taptap_version", self.default_taptap_version)
-            
-            if not song_id:
-                yield event.plain_result(
-                    "❌ 请提供歌曲ID\n"
-                    "💡 使用 /phi_search <关键词> 搜索歌曲获取ID\n"
-                    "示例: /phi_song 曲名.曲师"
-                )
-                return
-            
-            yield event.plain_result(f"⏳ 正在生成歌曲成绩图...")
-            
-            # 调用 API 获取 SVG（返回原始文本）
-            svg_data = await self._make_request(
-                method="POST",
-                endpoint="/image/song",
-                params={"format": "svg"},
-                json_data={
-                    "sessionToken": session_token,
-                    "taptapVersion": taptap_version,
-                    "song": song_id
-                },
-                return_raw=True
-            )
-            
-            # 尝试解析为 JSON（检查是否是候选列表）
-            try:
-                json_data = json.loads(svg_data)
-                if isinstance(json_data, dict) and "candidates" in json_data:
-                    candidates = json_data.get("candidates", [])
-                    if candidates:
-                        msg_parts = ["🎵 找到多个匹配的歌曲，请使用准确的ID:\n\n"]
-                        for i, candidate in enumerate(candidates[:10], 1):
-                            cid = candidate.get("id", "未知")
-                            name = candidate.get("name", "未知")
-                            msg_parts.append(f"{i}. {name}\n")
-                            msg_parts.append(f"   ID: {cid}\n\n")
-                        yield event.plain_result("".join(msg_parts))
-                    else:
-                        yield event.plain_result("❌ 未找到匹配的歌曲")
-                    return
-            except json.JSONDecodeError:
-                # 不是 JSON，说明是 SVG 数据，继续处理
-                pass
-            
-            # 保存 SVG 文件
-            safe_song_id = song_id.replace(".", "_").replace("/", "_")[:50]
-            svg_path = self.output_dir / f"song_{safe_song_id}.svg"
-            with open(svg_path, 'w', encoding='utf-8') as f:
-                f.write(svg_data)
-            
-            # 将 SVG 转换为 PNG（QQ 不支持 SVG）
-            output_path = self.output_dir / f"song_{safe_song_id}.png"
-            convert_success = False
-            
-            if SVG_CONVERTER_AVAILABLE:
-                try:
-                    # 传递曲绘路径和插件目录
-                    plugin_dir = str(Path(__file__).parent)
-                    illust_path = str(Path(__file__).parent / self.illustration_path.replace("./", ""))
-                    convert_success = convert_svg_to_png(
-                        str(svg_path),
-                        str(output_path),
-                        illustration_path=illust_path,
-                        plugin_dir=plugin_dir
-                    )
-                except Exception as e:
-                    logger.error(f"SVG 转换失败: {e}")
-            else:
-                logger.warning("SVG 转换器未加载")
-
-            # 发送图片或提示
-            if convert_success:
-                yield event.chain_result([
-                    Plain(f"🎵 歌曲成绩图\n"),
-                    Image(file=str(output_path))
-                ])
-            else:
-                # 转换失败，提示用户 SVG 文件位置
-                converter = get_converter() if SVG_CONVERTER_AVAILABLE else None
-                help_text = converter.install_help() if converter else "请安装 svglib: pip install svglib reportlab"
-                yield event.plain_result(
-                    f"⚠️ 歌曲成绩图已保存为 SVG 格式\n"
-                    f"📁 文件位置: {svg_path}\n"
-                    f"💡 {help_text}"
-                )
+            # 同时记录到日志
+            await self.api_monitor.log_metrics()
             
         except Exception as e:
-            yield event.plain_result(f"❌ 获取歌曲成绩图失败: {str(e)}")
+            yield event.plain_result(f"❌ 获取监控指标失败: {str(e)}")
 
-    # ==================== 命令: 获取新曲速递 ====================
-    @filter.command("phi_updates")
-    async def get_updates(self, event: AstrMessageEvent, count: int = 3):
-        """
-        获取 Phigros 新曲速递
-        用法: /phi_updates [count]
-        示例: /phi_updates 3
-        """
-        try:
-            data = await self._make_request(
-                method="GET",
-                endpoint="/song-updates",
-            )
 
-            if not isinstance(data, list):
-                yield event.plain_result("❌ 获取新曲速递失败: 响应格式错误")
-                return
-
-            msg_parts = ["🆕 Phigros 新曲速递\n\n"]
-
-            for update in data[:count]:
-                version = update.get("version", "未知版本")
-                update_date = update.get("updateDate", "")[:10]
-                content = update.get("content", "")
-
-                msg_parts.append(f"📦 版本 {version} ({update_date})\n")
-                lines = content.split("\n")
-                for line in lines[:20]:
-                    line = line.strip()
-                    if line and not line.startswith("---"):
-                        line = line.replace("# ", "• ").replace("## ", "  ")
-                        line = line.replace("**", "").replace("*", "")
-                        if line:
-                            msg_parts.append(f"{line}\n")
-                msg_parts.append("\n")
-
-            yield event.plain_result("".join(msg_parts))
-
-        except Exception as e:
-            yield event.plain_result(f"❌ 获取新曲速递失败: {str(e)}")
-
-    # ==================== 命令: 帮助 ====================
-    @filter.command("phi_help")
-    async def show_help(self, event: AstrMessageEvent):
-        """
-        显示 Phigros 插件帮助信息（带精美图片背景）
-        用法: /phi_help
-        """
-        help_text = """🎮 Phigros Query 插件帮助
-
-📋 可用命令:
-
-【账号绑定】
-1. /phi_qrlogin [taptapVersion]
-   TapTap 扫码登录（自动获取 token）⭐推荐
-   示例: /phi_qrlogin cn
-
-2. /phi_bind <sessionToken> [taptapVersion]
-   手动绑定 Phigros 账号
-   示例: /phi_bind your_token cn
-
-3. /phi_unbind
-   解绑 Phigros 账号
-
-【数据查询】
-4. /phi_b30 [sessionToken] [taptapVersion] [theme]
-   获取 Best 30 成绩图（API直接生成SVG）⭐推荐
-   示例: /phi_b30 或 /phi_b30 your_token cn black
-   参数: theme=black/white (默认 black)
-   💡 已绑定账号可直接使用 /phi_b30
-
-5. /phi_bn [n] [theme]
-   获取 BestN 成绩图（API直接生成SVG）🆕
-   示例: /phi_bn 27 black
-   参数: n=成绩数量(1-50), theme=black/white
-   💡 已绑定账号可直接使用 /phi_bn
-
-6. /phi_song <歌曲ID>
-   获取单曲成绩图（API直接生成）🆕
-   示例: /phi_song 曲名.曲师
-   💡 先用 /phi_search 搜索获取准确ID
-
-7. /phi_save [sessionToken] [taptapVersion]
-   获取用户存档数据（带曲绘图片）
-   示例: /phi_save 或 /phi_save your_token cn
-   💡 已绑定账号可直接使用 /phi_save
-
-8. /phi_rks_history [sessionToken] [limit]
-   查询 RKS 历史变化
-   示例: /phi_rks_history 或 /phi_rks_history your_token 10
-   💡 已绑定账号可直接使用 /phi_rks_history
-
-9. /phi_leaderboard
-   获取 RKS 排行榜 Top（带图片）
-
-10. /phi_rank <start> [end]
-    按排名区间查询玩家
-    示例: /phi_rank 1 10
-
-11. /phi_search <关键词> [limit]
-    搜索曲目信息（带曲绘图片）
-    示例: /phi_search Originally 5
-
-12. /phi_updates [count]
-    获取新曲速递
-    示例: /phi_updates 3
-
-13. /phi_update_illust [proxy]
-    手动更新曲绘（从 GitHub 自动下载）
-    示例: /phi_update_illust
-    示例: /phi_update_illust http://127.0.0.1:7890
-
-【视频娱乐】🎬
-14. /phi_video
-    发送随机 Phigros 视频片段 🎵
-    示例: /phi_video
-    💡 从 VideoClip 文件夹随机选择视频
-
-15. /phi_video_list
-    列出所有可用视频 📋
-    示例: /phi_video_list
-
-16. /phi_help
-    显示此帮助信息
-
-💡 使用提示:
-• 首次使用建议先绑定账号: /phi_bind <token>
-• 绑定后 /phi_save 和 /phi_rks_history 可直接使用
-• sessionToken 需要从 TapTap 获取
-• taptapVersion 可选值: cn (国服) 或 global (国际版)
-
-⚙️ 配置项（在插件配置中设置）:
-• phigros_api_token - API Token
-• enable_renderer - 是否启用图片渲染
-• illustration_path - 曲绘文件路径
-• image_quality - 图片质量 (1-100)
-• default_taptap_version - 默认 TapTap 版本
-• default_search_limit - 默认搜索数量
-• default_history_limit - 默认历史记录数量
-"""
-        
-        # 尝试生成帮助图片
-        if HELP_IMAGE_GENERATOR_AVAILABLE:
-            try:
-                logger.info("🎨 正在生成帮助图片...")
-                help_image_path = generate_help_image(self.data_dir.parent, help_text)
-                
-                if help_image_path and help_image_path.exists():
-                    logger.info(f"✅ 帮助图片生成成功: {help_image_path}")
-                    yield event.chain_result([
-                        Plain("🎮 Phigros Query 插件帮助\n"),
-                        Image(file=str(help_image_path)),
-                        Plain("\n💡 使用 /phi_help 可随时查看此帮助")
-                    ])
-                    return
-                else:
-                    logger.warning("⚠️ 帮助图片生成失败，使用文本模式")
-            except Exception as e:
-                logger.error(f"❌ 生成帮助图片失败: {e}")
-                logger.info("📝 回退到文本模式")
-        
-        # 回退到纯文本模式
-        yield event.plain_result(help_text)
-
-    @filter.command("phi_update_illust")
-    async def phi_update_illust(self, event: AstrMessageEvent, proxy: str = ""):
-        """手动更新曲绘"""
-        if not ILLUSTRATION_UPDATER_AVAILABLE:
-            yield event.plain_result("❌ 曲绘更新器未加载，无法更新")
-            return
-
-        yield event.plain_result("🎨 开始检查曲绘更新...")
-
-        try:
-            plugin_dir = Path(__file__).parent
-            illust_path = plugin_dir / self.illustration_path.replace("./", "")
-
-            # 使用提供的代理或配置中的代理
-            proxy_url = proxy if proxy else self.plugin_config.get("illustration_update_proxy", "")
-
-            success, fail, status = await auto_update_illustrations(
-                plugin_dir=plugin_dir,
-                illustration_path=illust_path,
-                proxy=proxy_url if proxy_url else None
-            )
-
-            if success > 0:
-                result = f"🎉 曲绘更新完成！\n✅ 成功下载: {success} 个\n❌ 失败: {fail} 个"
-                if status:
-                    result += f"\n📋 {status}"
-            elif "跳过检查" in status:
-                result = f"⏭️ {status}\n💡 使用 `/phi_update_illust force` 强制更新"
-            else:
-                result = f"ℹ️ {status}"
-
-            yield event.plain_result(result)
-
-        except Exception as e:
-            yield event.plain_result(f"❌ 更新失败: {e}")
-
-    # ==================== 命令: 随机视频 ====================
-    @filter.command("phi_video")
-    async def send_random_video(self, event: AstrMessageEvent):
-        """
-        发送随机 Phigros 视频片段
-        用法: /phi_video
-        """
-        if not VIDEO_SENDER_AVAILABLE:
-            yield event.plain_result("❌ 视频发送器未加载")
-            return
-        
-        try:
-            # 获取随机视频（data_dir 已经是插件目录）
-            video_path = get_random_video_path(self.data_dir)
-            
-            if not video_path or not video_path.exists():
-                yield event.plain_result("❌ 没有找到视频文件，请检查 VideoClip 文件夹")
-                return
-            
-            # 获取视频信息
-            sender = VideoSender(self.data_dir)
-            video_info = sender.get_video_info(video_path)
-            
-            logger.info(f"🎬 准备发送视频: {video_info['filename']} ({video_info['size_mb']}MB)")
-            
-            # 发送视频
-            yield event.plain_result(f"🎬 随机 Phigros 视频\n📹 {video_info['name']}\n📦 大小: {video_info['size_mb']}MB\n🎵 Enjoy the music! 🎶")
-            
-            # 使用 Video 组件发送视频文件
-            yield event.chain_result([Video(file=str(video_path))])
-            
-            logger.info(f"✅ 视频发送成功: {video_info['filename']}")
-            
-        except Exception as e:
-            logger.error(f"❌ 发送视频失败: {e}")
-            yield event.plain_result(f"❌ 发送视频失败: {e}")
-
-    @filter.command("phi_video_list")
-    async def list_videos(self, event: AstrMessageEvent):
-        """
-        列出所有可用视频
-        用法: /phi_video_list
-        """
-        if not VIDEO_SENDER_AVAILABLE:
-            yield event.plain_result("❌ 视频发送器未加载")
-            return
-        
-        try:
-            sender = VideoSender(self.data_dir)
-            video_list = sender.get_video_list()
-            
-            if not video_list:
-                yield event.plain_result("📂 VideoClip 文件夹为空\n💡 请将视频文件放入 VideoClip 文件夹")
-                return
-            
-            # 构建列表文本
-            msg_parts = ["🎬 可用视频列表:\n"]
-            for i, video_path in enumerate(video_list, 1):
-                info = sender.get_video_info(video_path)
-                msg_parts.append(f"{i}. {info['name']} ({info['size_mb']}MB)")
-            
-            msg_parts.append(f"\n📊 共 {len(video_list)} 个视频")
-            msg_parts.append("💡 使用 /phi_video 随机发送一个视频")
-            
-            yield event.plain_result("\n".join(msg_parts))
-            
-        except Exception as e:
-            logger.error(f"❌ 获取视频列表失败: {e}")
-            yield event.plain_result(f"❌ 获取视频列表失败: {e}")
