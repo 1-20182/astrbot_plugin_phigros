@@ -1,0 +1,54 @@
+# 🎮 Phigros 插件配置文件
+# 支持四层配置优先级：
+# 1. 环境变量（最高优先级）
+# 2. 插件配置（从WebUI获取）
+# 3. YAML配置文件（本文件）
+# 4. 默认值（最低优先级）
+
+phigros:
+  # API 配置
+  api:
+    base_url: "https://r0semi.xtower.site/api/v1/open"
+    timeout: 30
+    retry_times: 3
+    pool_size: 50
+    pool_per_host: 20
+  
+  # 渲染配置
+  render:
+    quality: 95
+    enable_glow: true
+    glow_color: "#4fc3f7"
+    width: 1200
+  
+  # 缓存配置
+  cache:
+    ttl: 300  # 5分钟
+    disk_ttl: 3600  # 1小时
+    max_size: 1000
+  
+  # 图片配置
+  image:
+    quality: 95
+    format: "PNG"
+    compress_level: 1
+  
+  # 路径配置
+  path:
+    illustration: "./ILLUSTRATION"
+    avatar: "./AVATAR"
+  
+  # 搜索配置
+  search:
+    limit: 5
+    history_limit: 10
+  
+  # 登录配置
+  login:
+    timeout: 120
+    poll_interval: 2
+  
+  # 更新配置
+  update:
+    illustration_interval: 7  # 7天
+    illustration_timeout: 300  # 5分钟

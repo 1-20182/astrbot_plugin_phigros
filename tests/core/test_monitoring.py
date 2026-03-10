@@ -14,6 +14,8 @@ class MockLogger:
         pass
     def error(self, msg):
         pass
+    def debug(self, msg):
+        pass
 
 class MockAPI:
     logger = MockLogger()

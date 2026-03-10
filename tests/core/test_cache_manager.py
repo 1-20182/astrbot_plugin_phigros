@@ -17,6 +17,8 @@ class MockLogger:
         pass
     def error(self, msg):
         pass
+    def debug(self, msg):
+        pass
 
 class MockAPI:
     logger = MockLogger()
@@ -155,26 +157,41 @@ class TestHybridCache(unittest.TestCase):
         )
         
         # 添加数据（使用get_or_set）
-        value1 = await cache.get_or_set('key1', lambda: 'value1')
+        async def get_value1():
+            return 'value1'
+        
+        async def get_new_value1():
+            return 'new_value1'
+        
+        value1 = await cache.get_or_set('key1', get_value1)
         self.assertEqual(value1, 'value1')
         
         # 验证数据存在（内存缓存）
-        value1_from_cache = await cache.get_or_set('key1', lambda: 'value1')
+        value1_from_cache = await cache.get_or_set('key1', get_value1)
         self.assertEqual(value1_from_cache, 'value1')
         
         # 模拟内存缓存淘汰
-        await cache.get_or_set('key2', lambda: 'value2')
-        await cache.get_or_set('key3', lambda: 'value3')
-        await cache.get_or_set('key4', lambda: 'value4')  # 触发key1被淘汰出内存
+        async def get_value2():
+            return 'value2'
+        
+        async def get_value3():
+            return 'value3'
+        
+        async def get_value4():
+            return 'value4'
+        
+        await cache.get_or_set('key2', get_value2)
+        await cache.get_or_set('key3', get_value3)
+        await cache.get_or_set('key4', get_value4)  # 触发key1被淘汰出内存
         
         # 验证key1从磁盘缓存中读取
-        value1_from_disk = await cache.get_or_set('key1', lambda: 'value1')
+        value1_from_disk = await cache.get_or_set('key1', get_value1)
         self.assertEqual(value1_from_disk, 'value1')
         
         # 清理缓存
         await cache.clear()
         # 重新获取，应该调用lambda函数
-        value1_after_clear = await cache.get_or_set('key1', lambda: 'new_value1')
+        value1_after_clear = await cache.get_or_set('key1', get_new_value1)
         self.assertEqual(value1_after_clear, 'new_value1')
     
     def test_hybrid_cache_basic_sync(self):
