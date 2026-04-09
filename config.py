@@ -97,20 +97,23 @@ class ConfigManager:
         # 如果环境变量有值且与默认值类型相同，返回环境变量值
         if (isinstance(env_value, type(default)) or 
             (isinstance(default, (int, float)) and isinstance(env_value, (int, float)))):
+            # 只有当环境变量值与默认值不同时才返回，否则继续检查其他配置源
             if env_value != default:
                 import logging
                 logging.info(f"从环境变量获取配置: {key} = {env_value}")
-            return env_value
+                return env_value
         
         # 2. 尝试从插件配置获取
         config_key = config_key or key
         if config and config_key in config:
             config_value = config[config_key]
-            if (isinstance(config_value, type(default)) or 
-                (isinstance(default, (int, float)) and isinstance(config_value, (int, float)))):
-                import logging
-                logging.info(f"从插件配置获取配置: {config_key} = {config_value}")
-            return config_value
+            # 确保配置值不是空字符串或None
+            if config_value is not None and (not isinstance(config_value, str) or config_value.strip()):
+                if (isinstance(config_value, type(default)) or 
+                    (isinstance(default, (int, float)) and isinstance(config_value, (int, float)))):
+                    import logging
+                    logging.info(f"从插件配置获取配置: {config_key} = {config_value}")
+                return config_value
         
         # 3. 尝试从YAML配置文件获取
         yaml_config = ConfigManager.load_yaml_config()
@@ -125,11 +128,12 @@ class ConfigManager:
                     break
             else:
                 # 找到了完整路径
-                if (isinstance(current, type(default)) or 
-                    (isinstance(default, (int, float)) and isinstance(current, (int, float)))):
-                    import logging
-                    logging.info(f"从YAML配置文件获取配置: {key} = {current}")
-                return current
+                if current is not None and (not isinstance(current, str) or current.strip()):
+                    if (isinstance(current, type(default)) or 
+                        (isinstance(default, (int, float)) and isinstance(current, (int, float)))):
+                        import logging
+                        logging.info(f"从YAML配置文件获取配置: {key} = {current}")
+                    return current
         
         # 4. 返回默认值
         return default

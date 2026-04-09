@@ -99,7 +99,7 @@ try:
     HELP_IMAGE_GENERATOR_AVAILABLE = True
 except ImportError as e:
     HELP_IMAGE_GENERATOR_AVAILABLE = False
-    logger.warning(f"help_image_generator 模块未加载: {e}")
+    logger.debug(f"help_image_generator 模块未加载: {e}")  # 改为debug级别，避免不必要的警告
 
 # 视频发送器
 try:

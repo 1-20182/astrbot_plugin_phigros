@@ -123,25 +123,46 @@ class IllustrationUpdater:
         Returns:
             响应对象或None
         """
-        # 尝试直接连接
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                    if resp.status == 200:
-                        return resp
-        except Exception as e:
-            logger.debug(f"直接连接失败: {e}")
-        
-        # 尝试代理
-        if self.proxy:
+        # 重试机制
+        retries = 3
+        for attempt in range(retries):
+            # 尝试直接连接
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(url, headers=headers, proxy=self.proxy, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    async with session.get(
+                        url, 
+                        headers=headers, 
+                        timeout=aiohttp.ClientTimeout(total=30),
+                        ssl=False  # 禁用SSL验证以避免证书问题
+                    ) as resp:
                         if resp.status == 200:
-                            logger.info(f"✅ 通过代理成功访问: {url}")
                             return resp
+                        elif resp.status == 403:
+                            # 可能是 rate limiting
+                            logger.warning(f"GitHub API rate limit reached, waiting before retry...")
+                            await asyncio.sleep(2 ** attempt)  # 指数退避
+                            continue
             except Exception as e:
-                logger.debug(f"代理连接失败: {e}")
+                logger.debug(f"直接连接失败 (尝试 {attempt+1}/{retries}): {e}")
+                await asyncio.sleep(2 ** attempt)  # 指数退避
+            
+            # 尝试代理
+            if self.proxy:
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(
+                            url, 
+                            headers=headers, 
+                            proxy=self.proxy, 
+                            timeout=aiohttp.ClientTimeout(total=30),
+                            ssl=False  # 禁用SSL验证以避免证书问题
+                        ) as resp:
+                            if resp.status == 200:
+                                logger.info(f"✅ 通过代理成功访问: {url}")
+                                return resp
+                except Exception as e:
+                    logger.debug(f"代理连接失败 (尝试 {attempt+1}/{retries}): {e}")
+                    await asyncio.sleep(2 ** attempt)  # 指数退避
         
         return None
     
