@@ -363,7 +363,19 @@ class PhigrosPlugin(Star):
     ):
         """渲染图片并发送"""
         if not self.renderer:
-            yield event.plain_result("❌ 图片渲染功能不可用")
+            # 渲染器不可用，回退到文本输出
+            if 'items' in data and isinstance(data['items'], list):
+                # 排行榜数据
+                items = data['items'][:15]
+                msg_parts = ["📊 Phigros RKS 排行榜\n\n"]
+                for item in items:
+                    rank = item.get('rank', 0)
+                    alias = item.get('alias', '未知')
+                    score = item.get('score', 0)
+                    msg_parts.append(f"{rank}. {alias} - RKS: {score:.4f}\n")
+                yield event.plain_result("".join(msg_parts))
+            else:
+                yield event.plain_result("❌ 图片渲染功能不可用")
             return
         
         try:
@@ -375,7 +387,19 @@ class PhigrosPlugin(Star):
             
         except Exception as e:
             logger.error(f"渲染失败: {e}")
-            yield event.plain_result(f"❌ 图片渲染失败: {str(e)}")
+            # 渲染失败，回退到文本输出
+            if 'items' in data and isinstance(data['items'], list):
+                # 排行榜数据
+                items = data['items'][:15]
+                msg_parts = ["📊 Phigros RKS 排行榜\n\n"]
+                for item in items:
+                    rank = item.get('rank', 0)
+                    alias = item.get('alias', '未知')
+                    score = item.get('score', 0)
+                    msg_parts.append(f"{rank}. {alias} - RKS: {score:.4f}\n")
+                yield event.plain_result("".join(msg_parts))
+            else:
+                yield event.plain_result(f"❌ 图片渲染失败: {str(e)}")
 
     def _get_user_id(self, event: AstrMessageEvent) -> tuple:
         """获取用户平台标识和ID"""

@@ -1,41 +1,40 @@
+#!/usr/bin/env python3
 """
-📦 缓存管理器模块
-
-包含 LRU 缓存淘汰策略和混合缓存系统，内存 + 磁盘双重缓存，性能杠杠的！
+简化版缓存管理器测试
 """
 import asyncio
 import json
-import pickle
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, Callable, Generic, TypeVar, List
+import os
 from pathlib import Path
 from collections import OrderedDict
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Any, Callable, Generic, TypeVar, List
 import aiofiles
 
-from astrbot.api import logger
-from .exceptions import CacheError
+# 模拟logger
+class MockLogger:
+    def debug(self, msg):
+        print(f"DEBUG: {msg}")
+    def info(self, msg):
+        print(f"INFO: {msg}")
+    def warning(self, msg):
+        print(f"WARNING: {msg}")
+
+logger = MockLogger()
+
+# 模拟CacheError
+class CacheError(Exception):
+    pass
 
 K = TypeVar('K')
 V = TypeVar('V')
 
-
 class LRUCache(Generic[K, V]):
-    """
-    LRU (Least Recently Used) 缓存实现
-
-    使用 OrderedDict 实现高效的 LRU 缓存淘汰策略！
-    """
-
     def __init__(
         self,
         capacity: int = 1000,
         ttl: Optional[int] = None
     ):
-        """
-        Args:
-            capacity: 缓存容量（最大键值对数量）
-            ttl: 缓存过期时间（秒），None 表示不自动过期
-        """
         self.capacity = capacity
         self.ttl = ttl
         self._cache: OrderedDict[K, Dict[str, Any]] = OrderedDict()
@@ -45,15 +44,6 @@ class LRUCache(Generic[K, V]):
         self._misses = 0
 
     async def get(self, key: K) -> Optional[V]:
-        """
-        获取缓存值
-
-        Args:
-            key: 缓存键
-
-        Returns:
-            Optional[V]: 缓存值，如果不存在或已过期则返回 None
-        """
         async with self._lock:
             if key not in self._cache:
                 self._misses += 1
@@ -75,13 +65,6 @@ class LRUCache(Generic[K, V]):
             return item['value']
 
     async def set(self, key: K, value: V) -> None:
-        """
-        设置缓存值
-
-        Args:
-            key: 缓存键
-            value: 缓存值
-        """
         async with self._lock:
             # 如果已存在，先删除
             if key in self._cache:
@@ -99,15 +82,6 @@ class LRUCache(Generic[K, V]):
             }
 
     async def delete(self, key: K) -> bool:
-        """
-        删除缓存值
-
-        Args:
-            key: 缓存键
-
-        Returns:
-            bool: 是否删除成功
-        """
         async with self._lock:
             if key in self._cache:
                 del self._cache[key]
@@ -115,23 +89,15 @@ class LRUCache(Generic[K, V]):
             return False
 
     async def clear(self) -> None:
-        """清空所有缓存"""
         async with self._lock:
             self._cache.clear()
             logger.info("🧹 LRU 缓存已清空")
 
     async def size(self) -> int:
-        """获取当前缓存大小"""
         async with self._lock:
             return len(self._cache)
 
     async def get_hit_rate(self) -> float:
-        """
-        获取缓存命中率
-
-        Returns:
-            float: 缓存命中率（0-1之间）
-        """
         async with self._lock:
             total = self._hits + self._misses
             if total == 0:
@@ -139,12 +105,6 @@ class LRUCache(Generic[K, V]):
             return self._hits / total
 
     async def get_stats(self) -> Dict[str, int]:
-        """
-        获取缓存统计信息
-
-        Returns:
-            Dict[str, int]: 包含命中、未命中和大小的字典
-        """
         async with self._lock:
             return {
                 "hits": self._hits,
@@ -152,26 +112,13 @@ class LRUCache(Generic[K, V]):
                 "size": len(self._cache)
             }
 
-
 class DiskCache:
-    """
-    磁盘缓存
-
-    使用文件系统存储缓存，支持跨进程持久化！
-    """
-
     def __init__(
         self,
         cache_dir: Path,
         ttl: Optional[int] = 3600,
         max_size: int = 1000
     ):
-        """
-        Args:
-            cache_dir: 缓存目录
-            ttl: 缓存过期时间（秒）
-            max_size: 最大缓存文件数量
-        """
         self.cache_dir = cache_dir
         self.ttl = ttl
         self.max_size = max_size
@@ -186,26 +133,14 @@ class DiskCache:
         # 确保缓存目录存在
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         # 设置缓存目录权限为 700
-        import os
         os.chmod(self.cache_dir, 0o700)
 
     def _get_cache_path(self, key: str) -> Path:
-        """获取缓存文件路径"""
-        # 使用安全的文件名
         import hashlib
         safe_key = hashlib.md5(str(key).encode()).hexdigest()
         return self.cache_dir / f"{safe_key}.cache"
 
     async def get(self, key: str) -> Optional[Any]:
-        """
-        从磁盘读取缓存
-
-        Args:
-            key: 缓存键
-
-        Returns:
-            Optional[Any]: 缓存值
-        """
         cache_path = self._get_cache_path(key)
 
         if not cache_path.exists():
@@ -238,13 +173,6 @@ class DiskCache:
             return None
 
     async def set(self, key: str, value: Any) -> None:
-        """
-        写入缓存到磁盘
-
-        Args:
-            key: 缓存键
-            value: 缓存值
-        """
         try:
             async with self._lock:
                 # 每10次写入执行一次清理
@@ -261,18 +189,9 @@ class DiskCache:
 
                 logger.debug(f"💾 磁盘缓存已写入: {cache_path}")
         except Exception as e:
-            raise CacheError(f"写入磁盘缓存失败: {e}", key)
+            raise CacheError(f"写入磁盘缓存失败: {e}")
 
     async def delete(self, key: str) -> bool:
-        """
-        删除磁盘缓存
-
-        Args:
-            key: 缓存键
-
-        Returns:
-            bool: 是否删除成功
-        """
         cache_path = self._get_cache_path(key)
         try:
             async with self._lock:
@@ -285,7 +204,6 @@ class DiskCache:
             return False
 
     async def _cleanup(self) -> None:
-        """清理过期和超出数量限制的缓存"""
         try:
             cache_files = list(self.cache_dir.glob("*.cache"))
 
@@ -312,7 +230,6 @@ class DiskCache:
             logger.warning(f"⚠️  清理磁盘缓存失败: {e}")
 
     async def clear(self) -> None:
-        """清空所有磁盘缓存"""
         try:
             async with self._lock:
                 for cache_file in self.cache_dir.glob("*.cache"):
@@ -322,12 +239,6 @@ class DiskCache:
             logger.warning(f"⚠️  清空磁盘缓存失败: {e}")
 
     async def get_hit_rate(self) -> float:
-        """
-        获取缓存命中率
-
-        Returns:
-            float: 缓存命中率（0-1之间）
-        """
         async with self._lock:
             total = self._hits + self._misses
             if total == 0:
@@ -335,27 +246,16 @@ class DiskCache:
             return self._hits / total
 
     async def get_stats(self) -> Dict[str, int]:
-        """
-        获取缓存统计信息
-
-        Returns:
-            Dict[str, int]: 包含命中、未命中和大小的字典
-        """
         async with self._lock:
+            # 计算磁盘缓存文件数量
+            cache_files = list(self.cache_dir.glob("*.cache"))
             return {
                 "hits": self._hits,
                 "misses": self._misses,
-                "size": len(self._cache)
+                "size": len(cache_files)
             }
 
-
 class HybridCache:
-    """
-    混合缓存系统
-
-    三级缓存：内存 LRU -> 磁盘 -> API，性能最优！
-    """
-
     def __init__(
         self,
         cache_dir: Path,
@@ -364,14 +264,6 @@ class HybridCache:
         disk_ttl: Optional[int] = 3600,
         disk_max_size: int = 1000
     ):
-        """
-        Args:
-            cache_dir: 缓存目录
-            lru_capacity: LRU 缓存容量
-            lru_ttl: LRU 缓存过期时间（秒）
-            disk_ttl: 磁盘缓存过期时间（秒）
-            disk_max_size: 磁盘缓存最大文件数
-        """
         self.lru_cache = LRUCache[str, Any](capacity=lru_capacity, ttl=lru_ttl)
         self.disk_cache = DiskCache(
             cache_dir=cache_dir,
@@ -385,17 +277,6 @@ class HybridCache:
         coro_func: Callable[[], Any],
         ttl: Optional[int] = None
     ) -> Any:
-        """
-        获取缓存或设置新值
-
-        Args:
-            key: 缓存键
-            coro_func: 生成值的协程函数
-            ttl: 可选的自定义 TTL
-
-        Returns:
-            Any: 缓存值
-        """
         # 1. 先从 LRU 缓存获取
         value = await self.lru_cache.get(key)
         if value is not None:
@@ -421,23 +302,14 @@ class HybridCache:
         return value
 
     async def delete(self, key: str) -> None:
-        """删除缓存"""
         await self.lru_cache.delete(key)
         await self.disk_cache.delete(key)
 
     async def clear(self) -> None:
-        """清空所有缓存"""
         await self.lru_cache.clear()
         await self.disk_cache.clear()
 
     async def warmup(self, keys: List[str]) -> None:
-        """
-        缓存预热机制
-
-        Args:
-            keys: 需要预热的缓存键列表
-        """
-        tasks = []
         for key in keys:
             # 从磁盘缓存加载到内存缓存
             value = await self.disk_cache.get(key)
@@ -447,12 +319,6 @@ class HybridCache:
         logger.info(f"🧹 缓存预热完成，共预热 {len(keys)} 个键")
 
     async def get_hit_rate(self) -> Dict[str, float]:
-        """
-        获取缓存命中率
-
-        Returns:
-            Dict[str, float]: 包含内存缓存和磁盘缓存命中率的字典
-        """
         lru_hit_rate = await self.lru_cache.get_hit_rate()
         disk_hit_rate = await self.disk_cache.get_hit_rate()
         
@@ -471,3 +337,74 @@ class HybridCache:
             "disk": disk_hit_rate,
             "overall": overall_hit_rate
         }
+
+async def test_cache_manager():
+    """测试缓存管理器功能"""
+    # 创建临时缓存目录
+    cache_dir = Path("./test_cache")
+    
+    # 初始化混合缓存
+    cache = HybridCache(cache_dir=cache_dir)
+    
+    # 测试基本功能
+    print("测试基本功能...")
+    
+    # 测试get_or_set方法
+    async def mock_api():
+        print("调用API获取数据")
+        return {"data": "test", "timestamp": "2023-01-01"}
+    
+    # 第一次调用，应该调用API
+    value1 = await cache.get_or_set("test_key", mock_api)
+    print(f"第一次获取值: {value1}")
+    
+    # 第二次调用，应该从缓存获取
+    value2 = await cache.get_or_set("test_key", mock_api)
+    print(f"第二次获取值: {value2}")
+    
+    # 测试删除功能
+    print("\n测试删除功能...")
+    await cache.delete("test_key")
+    
+    # 删除后再次获取，应该调用API
+    value3 = await cache.get_or_set("test_key", mock_api)
+    print(f"删除后获取值: {value3}")
+    
+    # 测试缓存预热
+    print("\n测试缓存预热...")
+    # 先设置一些缓存
+    async def mock_api1():
+        return {"data": "value1"}
+    async def mock_api2():
+        return {"data": "value2"}
+    async def mock_api3():
+        return {"data": "value3"}
+    
+    await cache.get_or_set("key1", mock_api1)
+    await cache.get_or_set("key2", mock_api2)
+    await cache.get_or_set("key3", mock_api3)
+    
+    # 预热缓存
+    await cache.warmup(["key1", "key2", "key3"])
+    
+    # 测试缓存命中率
+    print("\n测试缓存命中率...")
+    hit_rate = await cache.get_hit_rate()
+    print(f"缓存命中率: {hit_rate}")
+    
+    # 测试清空缓存
+    print("\n测试清空缓存...")
+    await cache.clear()
+    
+    # 清空后再次获取，应该调用API
+    value4 = await cache.get_or_set("test_key", mock_api)
+    print(f"清空后获取值: {value4}")
+    
+    # 清理测试目录
+    import shutil
+    shutil.rmtree(cache_dir, ignore_errors=True)
+    
+    print("\n测试完成！")
+
+if __name__ == "__main__":
+    asyncio.run(test_cache_manager())

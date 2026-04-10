@@ -132,8 +132,8 @@ class IllustrationUpdater:
                     async with session.get(
                         url, 
                         headers=headers, 
-                        timeout=aiohttp.ClientTimeout(total=30),
-                        ssl=False  # 禁用SSL验证以避免证书问题
+                        timeout=aiohttp.ClientTimeout(total=30)
+                        # 启用SSL验证以提高安全性
                     ) as resp:
                         if resp.status == 200:
                             return resp
@@ -154,8 +154,8 @@ class IllustrationUpdater:
                             url, 
                             headers=headers, 
                             proxy=self.proxy, 
-                            timeout=aiohttp.ClientTimeout(total=30),
-                            ssl=False  # 禁用SSL验证以避免证书问题
+                            timeout=aiohttp.ClientTimeout(total=30)
+                            # 启用SSL验证以提高安全性
                         ) as resp:
                             if resp.status == 200:
                                 logger.info(f"✅ 通过代理成功访问: {url}")
@@ -236,23 +236,34 @@ class IllustrationUpdater:
             "User-Agent": "Phigros-Plugin-Illustration-Updater"
         }
         
-        try:
-            resp = await self._fetch_with_proxy(api_url, headers)
-            if not resp:
+        retries = 3
+        for attempt in range(retries):
+            try:
+                resp = await self._fetch_with_proxy(api_url, headers)
+                if not resp:
+                    logger.warning(f"获取文件列表失败，尝试 {attempt+1}/{retries}")
+                    await asyncio.sleep(2 ** attempt)  # 指数退避
+                    continue
+                
+                files = await resp.json()
+                if isinstance(files, list):
+                    # 过滤文件，只保留PNG文件
+                    filtered_files = [f for f in files if f.get("type") == "file" and f.get("name", "").endswith(".png")]
+                    logger.info(f"获取到 {len(filtered_files)} 个曲绘文件")
+                    return filtered_files
                 return []
-            
-            files = await resp.json()
-            if isinstance(files, list):
-                return [f for f in files if f.get("type") == "file" and f.get("name", "").endswith(".png")]
-            return []
-            
-        except Exception as e:
-            logger.error(f"获取文件列表失败: {e}")
-            return []
+                
+            except Exception as e:
+                logger.warning(f"获取文件列表失败 (尝试 {attempt+1}/{retries}): {e}")
+                await asyncio.sleep(2 ** attempt)  # 指数退避
+                continue
+        
+        logger.error("获取文件列表失败，已达到最大重试次数")
+        return []
     
     async def _download_file(self, file_info: Dict, progress_callback=None) -> bool:
         """
-        下载单个文件
+        下载单个文件（支持断点续传）
         
         Args:
             file_info: 文件信息
@@ -263,6 +274,7 @@ class IllustrationUpdater:
         """
         file_name = file_info.get("name", "")
         download_url = file_info.get("download_url", "")
+        remote_size = file_info.get("size", 0)
         
         if not file_name or not download_url:
             return False
@@ -271,32 +283,66 @@ class IllustrationUpdater:
         local_path = self.illustration_path / file_name
         if local_path.exists():
             local_size = local_path.stat().st_size
-            remote_size = file_info.get("size", 0)
             if local_size == remote_size:
                 logger.debug(f"⏭️ 跳过已存在的文件: {file_name}")
                 return True
+            elif local_size < remote_size:
+                # 断点续传
+                headers = {"Range": f"bytes={local_size}-"}
+                logger.info(f"🔄 继续下载: {file_name} (已下载 {local_size}/{remote_size} 字节)")
+            else:
+                # 文件大于远程文件，重新下载
+                logger.info(f"🔄 重新下载: {file_name} (本地大小: {local_size}, 远程大小: {remote_size})")
+                local_size = 0
+                headers = None
+        else:
+            local_size = 0
+            headers = None
         
-        try:
-            resp = await self._fetch_with_proxy(download_url)
-            if not resp:
-                logger.warning(f"❌ 无法下载: {file_name}")
-                return False
-            
-            # 保存文件
-            content = await resp.read()
-            async with aiofiles.open(local_path, 'wb') as f:
-                await f.write(content)
-            
-            logger.debug(f"✅ 下载完成: {file_name}")
-            
-            if progress_callback:
-                await progress_callback(file_name)
-            
-            return True
-            
-        except Exception as e:
-            logger.warning(f"下载失败 {file_name}: {e}")
-            return False
+        retries = 3
+        for attempt in range(retries):
+            try:
+                resp = await self._fetch_with_proxy(download_url, headers)
+                if not resp:
+                    logger.warning(f"❌ 无法下载: {file_name}")
+                    await asyncio.sleep(2 ** attempt)  # 指数退避
+                    continue
+                
+                # 处理响应
+                mode = 'ab' if local_size > 0 else 'wb'
+                content_length = int(resp.headers.get('Content-Length', 0))
+                
+                # 保存文件
+                async with aiofiles.open(local_path, mode) as f:
+                    if content_length > 0:
+                        # 分块下载
+                        async for chunk in resp.content:
+                            if chunk:
+                                await f.write(chunk)
+                    else:
+                        content = await resp.read()
+                        await f.write(content)
+                
+                # 验证文件大小
+                final_size = local_path.stat().st_size
+                if final_size == remote_size:
+                    logger.debug(f"✅ 下载完成: {file_name}")
+                    
+                    if progress_callback:
+                        await progress_callback(file_name)
+                    
+                    return True
+                else:
+                    logger.warning(f"⚠️ 文件大小不匹配: {file_name} (期望: {remote_size}, 实际: {final_size})")
+                    await asyncio.sleep(2 ** attempt)  # 指数退避
+                    continue
+                
+            except Exception as e:
+                logger.warning(f"下载失败 {file_name} (尝试 {attempt+1}/{retries}): {e}")
+                await asyncio.sleep(2 ** attempt)  # 指数退避
+                continue
+        
+        return False
     
     async def update_illustrations(self, progress_callback=None) -> Tuple[int, int, str]:
         """
@@ -328,8 +374,8 @@ class IllustrationUpdater:
         success_count = 0
         fail_count = 0
         
-        # 限制并发数
-        semaphore = asyncio.Semaphore(5)
+        # 限制并发数（增加到10以提高下载速度）
+        semaphore = asyncio.Semaphore(10)
         
         async def download_with_limit(file_info):
             nonlocal success_count, fail_count
@@ -364,6 +410,13 @@ class IllustrationUpdater:
         Args:
             proxy_url: 代理地址，如 "http://127.0.0.1:7890"
         """
+        # 验证代理 URL 格式
+        import re
+        proxy_pattern = r'^(http|https|socks5)://[a-zA-Z0-9._-]+(:\d+)?$'
+        if not re.match(proxy_pattern, proxy_url):
+            logger.warning(f"⚠️  代理 URL 格式不正确: {proxy_url}")
+            return
+        
         self.proxy = proxy_url
         logger.info(f"🌐 已设置代理: {proxy_url}")
     

@@ -6,6 +6,7 @@
 import aiohttp
 import asyncio
 import json
+import random
 from typing import Optional, Dict, Any, Callable, Tuple
 from functools import wraps
 from datetime import datetime, timedelta
@@ -19,6 +20,7 @@ from .exceptions import (
 )
 from .cache_manager import HybridCache
 from .monitoring import monitor_api_call, api_monitor
+from .security import get_encryptor
 from pathlib import Path
 
 
@@ -26,10 +28,12 @@ def retry(
     max_attempts: int = 3,
     delay: float = 1.0,
     backoff_factor: float = 2.0,
+    jitter: float = 0.1,
     retryable_exceptions: Tuple[type, ...] = (
         NetworkError,
         aiohttp.ClientError,
-        asyncio.TimeoutError
+        asyncio.TimeoutError,
+        RateLimitError
     )
 ):
     """
@@ -39,6 +43,7 @@ def retry(
         max_attempts: 最大重试次数
         delay: 初始延迟（秒）
         backoff_factor: 指数退避因子
+        jitter: 随机抖动因子，用于避免重试风暴
         retryable_exceptions: 可重试的异常类型
     """
     def decorator(func: Callable):
@@ -50,14 +55,27 @@ def retry(
             for attempt in range(1, max_attempts + 1):
                 try:
                     return await func(*args, **kwargs)
+                except RateLimitError as e:
+                    # 特殊处理限流错误，使用服务器返回的重试时间
+                    last_exception = e
+                    if attempt == max_attempts:
+                        logger.error(f"⚠️  操作失败，已重试 {max_attempts} 次: {e}")
+                        raise
+
+                    retry_after = getattr(e, 'retry_after', current_delay)
+                    logger.warning(f"⚠️  第 {attempt} 次尝试失败，{retry_after:.1f} 秒后重试: {e}")
+                    await asyncio.sleep(retry_after)
+                    current_delay *= backoff_factor
                 except retryable_exceptions as e:
                     last_exception = e
                     if attempt == max_attempts:
                         logger.error(f"⚠️  操作失败，已重试 {max_attempts} 次: {e}")
                         raise
 
-                    logger.warning(f"⚠️  第 {attempt} 次尝试失败，{current_delay:.1f} 秒后重试: {e}")
-                    await asyncio.sleep(current_delay)
+                    # 添加随机抖动，避免重试风暴
+                    jitter_delay = current_delay * (1 + jitter * (2 * random.random() - 1))
+                    logger.warning(f"⚠️  第 {attempt} 次尝试失败，{jitter_delay:.1f} 秒后重试: {e}")
+                    await asyncio.sleep(jitter_delay)
                     current_delay *= backoff_factor
 
             raise last_exception
@@ -142,7 +160,8 @@ class PhigrosAPIClient:
         pool_per_host: int = 20,
         max_requests: int = 60,
         window_seconds: int = 60,
-        cache_dir: Optional[Path] = None
+        cache_dir: Optional[Path] = None,
+        config_dir: Optional[Path] = None
     ):
         """
         Args:
@@ -154,6 +173,7 @@ class PhigrosAPIClient:
             max_requests: 限流最大请求数
             window_seconds: 限流时间窗口（秒）
             cache_dir: 缓存目录
+            config_dir: 配置目录，用于存储加密密钥
         """
         self.base_url = base_url.rstrip("/")
         self.api_token = api_token
@@ -164,6 +184,15 @@ class PhigrosAPIClient:
         self.rate_limiter = RateLimiter(max_requests, window_seconds)
         self.cache: Optional[HybridCache] = None
         self.cache_dir = cache_dir
+        self.config_dir = config_dir
+        self.encryptor = None
+        
+        # 初始化加密器
+        if config_dir:
+            self.encryptor = get_encryptor(config_dir)
+            # 如果提供了 API token，加密它
+            if self.api_token:
+                self.api_token = self.encryptor.encrypt(self.api_token)
 
     async def initialize(self):
         """初始化 API 客户端，建立连接池"""
@@ -178,7 +207,10 @@ class PhigrosAPIClient:
             limit=self.pool_size,
             limit_per_host=self.pool_per_host,
             enable_cleanup_closed=True,
-            force_close=False
+            force_close=False,
+            ttl_dns_cache=300,  # 5分钟DNS缓存
+            keepalive_timeout=30,  # 30秒保持连接
+            ssl=False  # 如果不需要HTTPS验证，可以设置为False以提高性能
         )
 
         self.session = aiohttp.ClientSession(
@@ -210,8 +242,33 @@ class PhigrosAPIClient:
         """获取请求头"""
         headers = {"Content-Type": "application/json"}
         if self.api_token:
-            headers["X-OpenApi-Token"] = self.api_token
+            # 解密 API token
+            token = self.api_token
+            if self.encryptor:
+                token = self.encryptor.decrypt(token)
+            headers["X-OpenApi-Token"] = token
         return headers
+
+    def _generate_cache_key(self, prefix: str, *args) -> str:
+        """生成唯一的缓存键
+
+        Args:
+            prefix: 缓存键前缀
+            *args: 缓存键参数
+
+        Returns:
+            str: 唯一的缓存键
+        """
+        import hashlib
+        # 处理 session_token，将其哈希化以确保唯一性
+        processed_args = []
+        for arg in args:
+            if isinstance(arg, str) and ("session_token" in str(arg) or len(arg) > 20):
+                # 假设长字符串可能是 session_token
+                processed_args.append(hashlib.md5(str(arg).encode()).hexdigest())
+            else:
+                processed_args.append(str(arg))
+        return f"{prefix}_{'_'.join(processed_args)}"
 
     @retry(max_attempts=3, delay=1.0, backoff_factor=2.0)
     @monitor_api_call()
@@ -318,7 +375,7 @@ class PhigrosAPIClient:
             )
 
         # 生成缓存键
-        cache_key = f"save_{session_token[:8]}_{taptap_version}_{calculate_rks}"
+        cache_key = self._generate_cache_key("save", session_token, taptap_version, calculate_rks)
 
         # 如果有缓存，尝试从缓存获取
         if self.cache:
@@ -387,7 +444,7 @@ class PhigrosAPIClient:
             raise ValidationError("offset 不能为负数", "offset", offset)
 
         # 生成缓存键
-        cache_key = f"rks_history_{session_token[:8]}_{limit}_{offset}"
+        cache_key = self._generate_cache_key("rks_history", session_token, limit, offset)
 
         # 如果有缓存，尝试从缓存获取
         if self.cache:
@@ -460,7 +517,7 @@ class PhigrosAPIClient:
             raise ValidationError("theme 必须是 'black' 或 'white'", "theme", theme)
 
         # 生成缓存键
-        cache_key = f"bestn_image_{session_token[:8]}_{taptap_version}_{n}_{theme}_{format}"
+        cache_key = self._generate_cache_key("bestn_image", session_token, taptap_version, n, theme, format)
 
         # 如果有缓存，尝试从缓存获取
         if self.cache:

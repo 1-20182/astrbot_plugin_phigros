@@ -323,17 +323,18 @@ class QueryCommands:
                 params=params,
             )
 
-            items = data.get("items", [])
+            # 添加 start 和 end 信息到数据中
+            data["start"] = start
+            data["end"] = end or start + 9
 
-            msg_parts = [f"📊 排名 {start}-{end or start+9} 的玩家\n\n"]
-
-            for item in items:
-                rank = item.get("rank", 0)
-                alias = item.get("alias", "未知")
-                score = item.get("score", 0)
-                msg_parts.append(f"  {rank}. {alias} - RKS: {score:.4f}\n")
-
-            yield event.plain_result("".join(msg_parts))
+            # 使用图片渲染
+            async for result in self.plugin._render_and_send(
+                event,
+                self.plugin.renderer.render_rank if self.plugin.renderer else None,
+                data,
+                f"rank_{start}_{end or start+9}.png"
+            ):
+                yield result
 
         except Exception as e:
             yield event.plain_result(f"❌ 查询排名失败: {str(e)}")
@@ -532,28 +533,47 @@ class QueryCommands:
                 yield event.plain_result("❌ 获取新曲速递失败: 响应格式错误")
                 return
 
-            msg_parts = ["🆕 Phigros 新曲速递\n\n"]
-
-            for update in data[:count]:
-                version = update.get("version", "未知版本")
-                update_date = update.get("updateDate", "")[:10]
-                content = update.get("content", "")
-
-                msg_parts.append(f"📦 版本 {version} ({update_date})\n")
-                lines = content.split("\n")
-                for line in lines[:20]:
-                    line = line.strip()
-                    if line and not line.startswith("---"):
-                        line = line.replace("# ", "• ").replace("## ", "  ")
-                        line = line.replace("**", "").replace("*", "")
-                        if line:
-                            msg_parts.append(f"{line}\n")
-                msg_parts.append("\n")
-
-            yield event.plain_result("".join(msg_parts))
+            # 使用图片渲染
+            if self.plugin.renderer and hasattr(self.plugin.renderer, 'render_updates'):
+                output_path = self.plugin.output_dir / f"updates_{count}.png"
+                render_success = await self.plugin.renderer.render_updates(data, output_path, count)
+                
+                if render_success:
+                    yield event.chain_result([
+                        Plain(f"🆕 Phigros 新曲速递\n"),
+                        Image(file=str(output_path))
+                    ])
+                else:
+                    # 渲染失败，回退到文本输出
+                    yield from self._get_updates_text(data, count)
+            else:
+                # 渲染器不可用，使用文本输出
+                yield from self._get_updates_text(data, count)
 
         except Exception as e:
             yield event.plain_result(f"❌ 获取新曲速递失败: {str(e)}")
+
+    def _get_updates_text(self, data: list, count: int):
+        """获取新曲速递的文本输出（作为回退方案）"""
+        msg_parts = ["🆕 Phigros 新曲速递\n\n"]
+
+        for update in data[:count]:
+            version = update.get("version", "未知版本")
+            update_date = update.get("updateDate", "")[:10]
+            content = update.get("content", "")
+
+            msg_parts.append(f"📦 版本 {version} ({update_date})\n")
+            lines = content.split("\n")
+            for line in lines[:20]:
+                line = line.strip()
+                if line and not line.startswith("---"):
+                    line = line.replace("# ", "• ").replace("## ", "  ")
+                    line = line.replace("**", "").replace("*", "")
+                    if line:
+                        msg_parts.append(f"{line}\n")
+            msg_parts.append("\n")
+
+        yield Plain("".join(msg_parts))
 
     @filter.command("phi_bn")
     async def get_bestn(self, event: AstrMessageEvent, n: int = 30, theme: str = "black"):

@@ -231,7 +231,35 @@ class PhigrosRenderer:
         return result
 
     async def render_save_data(self, data: Dict[str, Any], output_path: str) -> str:
-        """渲染用户存档数据（紧凑版）"""
+        """渲染用户存档数据（使用设计系统）"""
+        try:
+            # 尝试使用设计系统渲染
+            from design_system import PhigrosDesignSystem
+            from pathlib import Path
+            
+            # 初始化设计系统
+            design_system = PhigrosDesignSystem(
+                plugin_dir=Path(__file__).parent,
+                cache_dir=Path(self.cache_dir),
+                illustration_path=Path(self.illustration_path)
+            )
+            await design_system.initialize()
+            
+            # 渲染存档数据
+            success = await design_system.render_save_data(data, Path(output_path))
+            
+            if success:
+                return output_path
+            else:
+                # 渲染失败，回退到默认渲染
+                return await self._render_save_data_fallback(data, output_path)
+                
+        except Exception as e:
+            # 设计系统不可用，回退到默认渲染
+            return await self._render_save_data_fallback(data, output_path)
+    
+    async def _render_save_data_fallback(self, data: Dict[str, Any], output_path: str) -> str:
+        """渲染用户存档数据（回退版本）"""
         # 图片尺寸 - 使用固定尺寸，不缩放
         img_width, img_height = 1920, 1080
         

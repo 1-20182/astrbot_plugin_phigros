@@ -97,6 +97,14 @@ class PhiStyleRenderer:
         # 曲绘预加载缓存（存储处理后的曲绘）
         self._processed_illust_cache: Dict[str, Image.Image] = {}
 
+        # 曲绘使用记录，用于冲突检测
+        self._illustration_usage: Dict[str, List[str]] = {}
+
+        # 所有可用曲绘的映射，键为歌曲名称，值为曲绘文件路径列表
+        self._all_illustrations: Dict[str, List[Path]] = {}
+        # 初始化可用曲绘映射
+        self._initialize_illustrations_map()
+
         logger.info("🎨 Phi-Plugin 风格渲染器初始化")
 
     async def initialize(self):
@@ -384,53 +392,6 @@ class PhiStyleRenderer:
                 pass
         except Exception as e:
             logger.warning(f"绘制文本失败 '{text}': {e}")
-
-    def __init__(self,
-                 plugin_dir: Path,
-                 cache_dir: Path,
-                 illustration_path: Path,
-                 image_quality: int = 95,
-                 avatar_path: Optional[Path] = None):
-        """初始化渲染器"""
-        self.plugin_dir = plugin_dir
-        self.cache_dir = cache_dir
-        self.illustration_path = illustration_path
-        self.image_quality = image_quality
-        self.avatar_path = avatar_path or (plugin_dir / "AVATAR")
-
-        # 字体缓存
-        self._font_cache: Dict[str, ImageFont.FreeTypeFont] = {}
-
-        # 曲绘缓存
-        self._illustration_cache: Dict[str, Image.Image] = {}
-
-        # 头像缓存
-        self._avatar_cache: Dict[str, Image.Image] = {}
-
-        # 评级图片缓存
-        self._rating_cache: Dict[str, Image.Image] = {}
-
-        # 评级图片路径
-        self.rating_path = plugin_dir / "resources" / "img" / "rating"
-
-        # 背景图片缓存
-        self._bg_cache: Optional[Image.Image] = None
-
-        # 线程池（用于并行加载图片）
-        self._executor = ThreadPoolExecutor(max_workers=4)
-
-        # 曲绘预加载缓存（存储处理后的曲绘）
-        self._processed_illust_cache: Dict[str, Image.Image] = {}
-
-        # 曲绘使用记录，用于冲突检测
-        self._illustration_usage: Dict[str, List[str]] = {}
-
-        # 所有可用曲绘的映射，键为歌曲名称，值为曲绘文件路径列表
-        self._all_illustrations: Dict[str, List[Path]] = {}
-        # 初始化可用曲绘映射
-        self._initialize_illustrations_map()
-
-        logger.info("🎨 Phi-Plugin 风格渲染器初始化")
 
     def _initialize_illustrations_map(self):
         """初始化可用曲绘映射"""
@@ -1493,6 +1454,430 @@ class PhiStyleRenderer:
             
         except Exception as e:
             logger.error(f"渲染 RKS 历史趋势图失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+
+    async def render_leaderboard(self, data: Dict[str, Any], output_path: Path) -> bool:
+        """
+        渲染排行榜
+        
+        Args:
+            data: 排行榜数据
+            output_path: 输出路径
+            
+        Returns:
+            是否成功
+        """
+        try:
+            logger.info("🎨 开始渲染排行榜")
+            
+            # 提取数据
+            items = data.get('items', [])
+            
+            if not items:
+                logger.warning("无排行榜数据")
+                return False
+            
+            # 计算高度
+            total_height = 200 + len(items) * 70
+            
+            # 创建图片
+            img = Image.new('RGBA', (self.WIDTH, total_height), (26, 26, 46, 255))
+            # 加载并绘制背景图片
+            bg_img = self._get_background_image(total_height)
+            # 确保背景图片是RGBA模式
+            if bg_img.mode != 'RGBA':
+                bg_img = bg_img.convert('RGBA')
+            # 将背景图片粘贴到输出图片
+            img.paste(bg_img, (0, 0))
+            draw = ImageDraw.Draw(img)
+            
+            # 绘制标题
+            font_title = self._get_font(36, bold=True)
+            self._draw_text_with_glow(img, self.WIDTH // 2, 60, 
+                                      "🏆 Phigros RKS 排行榜", 'white', font_title,
+                                      glow_color=(100, 200, 255), glow_radius=6, anchor='mm')
+            
+            # 绘制排行榜项
+            y_offset = 120
+            for i, item in enumerate(items[:15]):
+                rank = item.get('rank', 0)
+                alias = item.get('alias', '未知')
+                score = item.get('score', 0)
+                
+                # 排名颜色
+                rank_colors = {
+                    1: (255, 215, 0, 200),    # 金牌
+                    2: (192, 192, 192, 200),  # 银牌
+                    3: (205, 127, 50, 200)    # 铜牌
+                }
+                rank_color = rank_colors.get(rank, (100, 100, 100, 150))
+                
+                # 排名标签
+                draw.rectangle([60, y_offset, 120, y_offset + 50], fill=rank_color)
+                font_rank = self._get_font(24, bold=True)
+                self._draw_text_safe(draw, (90, y_offset + 25), str(rank), 
+                                   fill=(0, 0, 0, 255), font=font_rank, anchor='mm')
+                
+                # 玩家卡片
+                draw.rectangle([140, y_offset - 2, 1040, y_offset + 53], 
+                              fill=(0, 0, 0, 130))
+                
+                # 玩家信息
+                font_alias = self._get_font(26, bold=True)
+                self._draw_text_with_glow(img, 160, y_offset + 8, alias, 'white', font_alias,
+                                          glow_color=(100, 200, 255), glow_radius=2)
+                
+                font_rks = self._get_font(22, bold=True)
+                self._draw_text_with_glow(img, 700, y_offset + 12, f"RKS: {score:.4f}", '#ffd700', font_rks,
+                                          glow_color=(255, 215, 0), glow_radius=2)
+                
+                y_offset += 70
+            
+            # 绘制底部
+            footer_y = y_offset + 40
+            self._draw_footer(img, draw, footer_y)
+            
+            # 保存图片
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            img.save(output_path, 'PNG', compress_level=1, optimize=False)
+            logger.info(f"✅ 排行榜渲染成功: {output_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"渲染失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+
+    async def render_song_detail(self, song: Dict[str, Any], output_path: Path) -> bool:
+        """渲染歌曲详情图（用于 phi_search 命令）"""
+        try:
+            logger.info(f"🎨 开始渲染歌曲详情，歌曲: {song.get('name', 'Unknown')}")
+            
+            # 提取歌曲信息
+            song_name = song.get('name', 'Unknown')
+            composer = song.get('composer', 'Unknown')
+            constants = song.get('chartConstants', {})
+            illust = self._get_illustration(song_name)
+            
+            # 计算图片高度
+            total_height = 600
+            
+            # 创建图片
+            img = Image.new('RGBA', (self.WIDTH, total_height), 
+                          self._hex_to_rgb(self.COLORS['bg']))
+            
+            # 加载并绘制背景图片
+            bg_img = self._get_background_image(total_height)
+            if bg_img.mode != 'RGBA':
+                bg_img = bg_img.convert('RGBA')
+            img.paste(bg_img, (0, 0))
+            
+            draw = ImageDraw.Draw(img)
+            
+            # 绘制标题
+            font_title = self._get_font(36, bold=True)
+            self._draw_text_with_glow(img, self.WIDTH // 2, 80, 
+                                      "🎵 歌曲详情", '#ffffff', font_title,
+                                      glow_color=(100, 200, 255), glow_radius=6, anchor='mm')
+            
+            # 曲绘区域
+            illust_size = 300
+            illust_x = 100
+            illust_y = 150
+            
+            if illust:
+                illust_resized = illust.resize((illust_size, illust_size), Image.Resampling.LANCZOS)
+                img.paste(illust_resized, (illust_x, illust_y))
+                # 绘制边框
+                draw.rectangle([illust_x, illust_y, illust_x + illust_size, illust_y + illust_size],
+                              outline='#00b0f0', width=3)
+            else:
+                # 绘制占位符
+                draw.rectangle([illust_x, illust_y, illust_x + illust_size, illust_y + illust_size],
+                              fill=(50, 50, 70, 200), outline='#00b0f0', width=3)
+                font_placeholder = self._get_font(24)
+                self._draw_text_safe(draw, (illust_x + illust_size // 2, illust_y + illust_size // 2), 
+                                   '暂无曲绘', fill='#aaaaaa', font=font_placeholder, anchor='mm')
+            
+            # 歌曲信息区域
+            info_x = illust_x + illust_size + 60
+            info_y = illust_y
+            
+            # 歌曲名称
+            font_song_name = self._get_font(32, bold=True)
+            self._draw_text_with_glow(img, info_x, info_y, song_name, '#ffffff', font_song_name,
+                                      glow_color=(100, 200, 255), glow_radius=4)
+            
+            # 作曲者
+            font_composer = self._get_font(20)
+            self._draw_text_safe(draw, (info_x, info_y + 50), 
+                               f'作曲: {composer}', fill='#aaaaaa', font=font_composer)
+            
+            # 定数信息
+            font_constants = self._get_font(18, bold=True)
+            constants_y = info_y + 100
+            self._draw_text_safe(draw, (info_x, constants_y), '难度定数:', fill='#ffffff', font=font_constants)
+            
+            diff_colors = {'ez': '#92d050', 'hd': '#00b0f0', 'in': '#ff0000', 'at': '#6e6e6e'}
+            diff_x = info_x
+            diff_y = constants_y + 35
+            for diff, color in diff_colors.items():
+                val = constants.get(diff)
+                if val is not None:
+                    draw.rectangle([diff_x, diff_y, diff_x + 80, diff_y + 35],
+                                  fill=self._hex_to_rgb(color))
+                    font_diff = self._get_font(16, bold=True)
+                    self._draw_text_safe(draw, (diff_x + 40, diff_y + 17), 
+                                       f'{diff.upper()}: {val}', fill='#ffffff', font=font_diff, anchor='mm')
+                    diff_x += 100
+            
+            # 绘制底部
+            self._draw_footer(img, draw, total_height - 40)
+            
+            # 保存图片
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            img.save(output_path, 'PNG', compress_level=1, optimize=False)
+            logger.info(f"✅ 歌曲详情渲染成功: {output_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"渲染歌曲详情失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+
+    async def render_save_data(self, data: Dict[str, Any], output_path: Path) -> bool:
+        """渲染存档数据图"""
+        try:
+            logger.info("🎨 开始渲染存档数据")
+            
+            # 提取存档信息
+            gameuser = data.get('gameuser', {})
+            rks = data.get('rks', {}).get('totalRks', 0) if isinstance(data.get('rks'), dict) else (data.get('rks') or 0)
+            save_info = data.get('save', {}).get('summaryParsed', {})
+            game_progress = data.get('save', {}).get('game_progress', {})
+            
+            # 计算图片高度
+            total_height = 500
+            
+            # 创建图片
+            img = Image.new('RGBA', (self.WIDTH, total_height), 
+                          self._hex_to_rgb(self.COLORS['bg']))
+            
+            # 加载并绘制背景图片
+            bg_img = self._get_background_image(total_height)
+            if bg_img.mode != 'RGBA':
+                bg_img = bg_img.convert('RGBA')
+            img.paste(bg_img, (0, 0))
+            
+            draw = ImageDraw.Draw(img)
+            
+            # 绘制头部
+            self._draw_header(img, draw, gameuser)
+            
+            # 绘制存档详情
+            y_offset = self.HEADER_HEIGHT + 40
+            
+            font_label = self._get_font(18, bold=True)
+            font_value = self._get_font(22, bold=True)
+            
+            # RKS
+            self._draw_text_safe(draw, (100, y_offset), '总 RKS:', fill='#aaaaaa', font=font_label)
+            self._draw_text_with_glow(img, 300, y_offset, f'{rks:.4f}', '#ffd700', font_value,
+                                      glow_color=(255, 215, 0), glow_radius=3, anchor='lm')
+            
+            # 课题模式段位
+            challenge_rank = game_progress.get('challengeModeRank', 0)
+            y_offset += 50
+            self._draw_text_safe(draw, (100, y_offset), '课题模式段位:', fill='#aaaaaa', font=font_label)
+            self._draw_text_with_glow(img, 300, y_offset, str(challenge_rank), '#00b0f0', font_value,
+                                      glow_color=(0, 176, 240), glow_radius=3, anchor='lm')
+            
+            # 绘制底部
+            self._draw_footer(img, draw, total_height - 40)
+            
+            # 保存图片
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            img.save(output_path, 'PNG', compress_level=1, optimize=False)
+            logger.info(f"✅ 存档数据渲染成功: {output_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"渲染存档数据失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+
+    async def render_rank(self, data: Dict[str, Any], output_path: Path) -> bool:
+        """渲染排名区间查询图（用于 phi_rank 命令）"""
+        try:
+            logger.info("🎨 开始渲染排名区间查询")
+            
+            items = data.get('items', [])
+            start = data.get('start', 1)
+            end = data.get('end', start + 9)
+            
+            if not items:
+                logger.warning("无排名数据")
+                return False
+            
+            # 计算图片高度
+            total_height = 200 + len(items) * 70
+            
+            # 创建图片
+            img = Image.new('RGBA', (self.WIDTH, total_height), 
+                          self._hex_to_rgb(self.COLORS['bg']))
+            
+            # 加载并绘制背景图片
+            bg_img = self._get_background_image(total_height)
+            if bg_img.mode != 'RGBA':
+                bg_img = bg_img.convert('RGBA')
+            img.paste(bg_img, (0, 0))
+            
+            draw = ImageDraw.Draw(img)
+            
+            # 绘制标题
+            font_title = self._get_font(36, bold=True)
+            self._draw_text_with_glow(img, self.WIDTH // 2, 60, 
+                                      f"📊 排名 {start}-{end}", '#ffffff', font_title,
+                                      glow_color=(100, 200, 255), glow_radius=6, anchor='mm')
+            
+            # 绘制排行榜项
+            y_offset = 120
+            for i, item in enumerate(items[:15]):
+                rank = item.get('rank', 0)
+                alias = item.get('alias', '未知')
+                score = item.get('score', 0)
+                
+                # 排名颜色
+                rank_colors = {
+                    1: (255, 215, 0, 200),
+                    2: (192, 192, 192, 200),
+                    3: (205, 127, 50, 200)
+                }
+                rank_color = rank_colors.get(rank, (100, 100, 100, 150))
+                
+                # 排名标签
+                draw.rectangle([60, y_offset, 120, y_offset + 50], fill=rank_color)
+                font_rank = self._get_font(24, bold=True)
+                self._draw_text_safe(draw, (90, y_offset + 25), str(rank), 
+                                   fill=(0, 0, 0, 255), font=font_rank, anchor='mm')
+                
+                # 玩家卡片
+                draw.rectangle([140, y_offset - 2, 1040, y_offset + 53], 
+                              fill=(0, 0, 0, 130))
+                
+                # 玩家信息
+                font_alias = self._get_font(26, bold=True)
+                self._draw_text_with_glow(img, 160, y_offset + 8, alias, 'white', font_alias,
+                                          glow_color=(100, 200, 255), glow_radius=2)
+                
+                font_rks = self._get_font(22, bold=True)
+                self._draw_text_with_glow(img, 700, y_offset + 12, f"RKS: {score:.4f}", '#ffd700', font_rks,
+                                          glow_color=(255, 215, 0), glow_radius=2)
+                
+                y_offset += 70
+            
+            # 绘制底部
+            footer_y = y_offset + 40
+            self._draw_footer(img, draw, footer_y)
+            
+            # 保存图片
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            img.save(output_path, 'PNG', compress_level=1, optimize=False)
+            logger.info(f"✅ 排名区间查询渲染成功: {output_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"渲染排名区间查询失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return False
+
+    async def render_updates(self, data: List[Dict[str, Any]], output_path: Path, count: int = 3) -> bool:
+        """渲染新曲速递图（用于 phi_updates 命令）"""
+        try:
+            logger.info("🎨 开始渲染新曲速递")
+            
+            if not data or not isinstance(data, list):
+                logger.warning("无更新数据")
+                return False
+            
+            updates = data[:count]
+            
+            # 计算图片高度
+            total_height = 200 + len(updates) * 200
+            
+            # 创建图片
+            img = Image.new('RGBA', (self.WIDTH, total_height), 
+                          self._hex_to_rgb(self.COLORS['bg']))
+            
+            # 加载并绘制背景图片
+            bg_img = self._get_background_image(total_height)
+            if bg_img.mode != 'RGBA':
+                bg_img = bg_img.convert('RGBA')
+            img.paste(bg_img, (0, 0))
+            
+            draw = ImageDraw.Draw(img)
+            
+            # 绘制标题
+            font_title = self._get_font(36, bold=True)
+            self._draw_text_with_glow(img, self.WIDTH // 2, 60, 
+                                      "🆕 Phigros 新曲速递", '#ffffff', font_title,
+                                      glow_color=(100, 200, 255), glow_radius=6, anchor='mm')
+            
+            # 绘制更新信息
+            y_offset = 120
+            for update in updates:
+                version = update.get('version', '未知版本')
+                update_date = update.get('updateDate', '')[:10]
+                content = update.get('content', '')
+                
+                # 更新卡片
+                card_height = 180
+                draw.rectangle([100, y_offset, self.WIDTH - 100, y_offset + card_height],
+                              fill=(0, 0, 0, 150))
+                
+                # 版本和日期
+                font_version = self._get_font(28, bold=True)
+                self._draw_text_with_glow(img, 150, y_offset + 30, 
+                                          f"版本 {version}", '#ffd700', font_version,
+                                          glow_color=(255, 215, 0), glow_radius=3)
+                
+                font_date = self._get_font(18)
+                self._draw_text_safe(draw, (150, y_offset + 70), 
+                                   f'更新日期: {update_date}', fill='#aaaaaa', font=font_date)
+                
+                # 更新内容
+                font_content = self._get_font(14)
+                content_y = y_offset + 100
+                lines = content.split('\n')[:6]
+                for line in lines:
+                    line = line.strip()
+                    if line and not line.startswith('---'):
+                        line = line.replace('# ', '• ').replace('## ', '  ')
+                        line = line.replace('**', '').replace('*', '')
+                        if line:
+                            self._draw_text_safe(draw, (150, content_y), line, fill='#ffffff', font=font_content)
+                            content_y += 25
+                
+                y_offset += card_height + 20
+            
+            # 绘制底部
+            footer_y = y_offset + 40
+            self._draw_footer(img, draw, footer_y)
+            
+            # 保存图片
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            img.save(output_path, 'PNG', compress_level=1, optimize=False)
+            logger.info(f"✅ 新曲速递渲染成功: {output_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"渲染新曲速递失败: {e}")
             import traceback
             logger.error(traceback.format_exc())
             return False

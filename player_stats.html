@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phigros 玩家统计</title>
+    <style>
+        :root {
+            --bg-color: #1a1a2e;
+            --card-bg: rgba(0, 0, 0, 0.6);
+            --text-white: #ffffff;
+            --text-gray: #aaaaaa;
+            --ez-color: #92d050;
+            --hd-color: #00b0f0;
+            --in-color: #ff0000;
+            --at-color: #6e6e6e;
+            --gold-color: #ffd700;
+            --silver-color: #c0c0c0;
+            --bronze-color: #cd7f32;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Source Han Sans', 'Noto Sans', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-white);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(10px);
+        }
+
+        .avatar {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            border: 3px solid white;
+            margin-right: 25px;
+            overflow: hidden;
+            transition: transform 0.3s ease;
+        }
+
+        .avatar:hover {
+            transform: scale(1.05);
+        }
+
+        .avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .player-info {
+            flex: 1;
+        }
+
+        .rank-badge {
+            display: inline-block;
+            margin-right: 15px;
+            vertical-align: middle;
+        }
+
+        .nickname {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: var(--text-white);
+        }
+
+        .player-id {
+            font-size: 16px;
+            color: var(--text-gray);
+            margin-bottom: 12px;
+        }
+
+        .rks-container {
+            display: flex;
+            align-items: center;
+        }
+
+        .rks-label {
+            font-size: 16px;
+            font-weight: bold;
+            margin-right: 15px;
+            color: var(--text-white);
+        }
+
+        .rks-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: var(--text-white);
+            transition: all 0.3s ease;
+        }
+
+        .rks-value:hover {
+            color: var(--gold-color);
+            transform: scale(1.1);
+        }
+
+        .logo {
+            margin-left: auto;
+            text-align: center;
+        }
+
+        .logo img {
+            width: 100px;
+            height: 100px;
+        }
+
+        .logo-text {
+            font-size: 14px;
+            color: var(--text-gray);
+            margin-top: 10px;
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin: 30px 0 20px;
+            color: var(--text-white);
+            display: flex;
+            align-items: center;
+        }
+
+        .section-title::before {
+            content: "";
+            display: inline-block;
+            width: 4px;
+            height: 20px;
+            background-color: var(--in-color);
+            margin-right: 10px;
+            border-radius: 2px;
+        }
+
+        .best30-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .song-card {
+            display: flex;
+            background: var(--card-bg);
+            border-radius: 8px;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(5px);
+        }
+
+        .song-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .illustration {
+            width: 175px;
+            height: 90px;
+            position: relative;
+        }
+
+        .illustration img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .rank-badge-card {
+            position: absolute;
+            top: -5px;
+            left: -5px;
+            width: 50px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: bold;
+            color: black;
+        }
+
+        .rank-1 {
+            background-color: var(--gold-color);
+        }
+
+        .rank-2 {
+            background-color: var(--silver-color);
+        }
+
+        .rank-3 {
+            background-color: var(--bronze-color);
+        }
+
+        .rank-other {
+            background-color: white;
+        }
+
+        .difficulty-badge {
+            position: absolute;
+            bottom: 5px;
+            left: 5px;
+            width: 45px;
+            height: 22px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+        }
+
+        .diff-ez {
+            background-color: var(--ez-color);
+        }
+
+        .diff-hd {
+            background-color: var(--hd-color);
+        }
+
+        .diff-in {
+            background-color: var(--in-color);
+        }
+
+        .diff-at {
+            background-color: var(--at-color);
+        }
+
+        .fc-badge {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            width: 28px;
+            height: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            font-weight: bold;
+        }
+
+        .fc {
+            background-color: var(--hd-color);
+            color: white;
+        }
+
+        .ap {
+            background-color: var(--gold-color);
+            color: black;
+        }
+
+        .song-info {
+            flex: 1;
+            padding: 10px;
+            position: relative;
+        }
+
+        .song-name {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: var(--text-white);
+            text-shadow: 0 0 5px rgba(100, 200, 255, 0.5);
+        }
+
+        .score {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: var(--gold-color);
+            text-shadow: 0 0 5px rgba(100, 200, 255, 0.5);
+        }
+
+        .acc-rks {
+            font-size: 12px;
+            color: var(--text-gray);
+        }
+
+        .rating {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 40px;
+            height: 40px;
+        }
+
+        .rating img {
+            width: 100%;
+            height: 100%;
+        }
+
+        .challenge-mode {
+            background: var(--card-bg);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 30px;
+            backdrop-filter: blur(5px);
+        }
+
+        .challenge-rank {
+            display: flex;
+            align-items: center;
+            margin-top: 15px;
+        }
+
+        .rank-color {
+            width: 80px;
+            height: 40px;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            font-weight: bold;
+            color: white;
+            margin-right: 20px;
+        }
+
+        .rank-color-colorful {
+            background: linear-gradient(45deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #8b00ff);
+        }
+
+        .rank-color-gold {
+            background-color: var(--gold-color);
+        }
+
+        .rank-color-red {
+            background-color: #ff6600;
+        }
+
+        .rank-color-blue {
+            background-color: var(--hd-color);
+        }
+
+        .rank-color-green {
+            background-color: var(--ez-color);
+        }
+
+        .rank-color-white {
+            background-color: #ffffff;
+            color: #000000;
+        }
+
+        .rank-info {
+            flex: 1;
+        }
+
+        .rank-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .rank-desc {
+            font-size: 14px;
+            color: var(--text-gray);
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.6s ease forwards;
+        }
+
+        .delay-1 {
+            animation-delay: 0.1s;
+        }
+
+        .delay-2 {
+            animation-delay: 0.2s;
+        }
+
+        .delay-3 {
+            animation-delay: 0.3s;
+        }
+
+        .delay-4 {
+            animation-delay: 0.4s;
+        }
+
+        .delay-5 {
+            animation-delay: 0.5s;
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .avatar {
+                margin-right: 0;
+                margin-bottom: 20px;
+            }
+
+            .player-info {
+                margin-bottom: 20px;
+            }
+
+            .logo {
+                margin-left: 0;
+            }
+
+            .best30-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .challenge-rank {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .rank-color {
+                margin-right: 0;
+                margin-bottom: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 头部玩家信息 -->
+        <div class="header fade-in">
+            <div class="avatar">
+                <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Phigros%20player%20avatar%20icon%2C%20abstract%20geometric%20design%2C%20dark%20background&image_size=square" alt="玩家头像">
+            </div>
+            <div class="player-info">
+                <div class="rank-badge">
+                    <div class="rank-color rank-color-gold">42</div>
+                </div>
+                <div class="nickname">Phigros Player</div>
+                <div class="player-id">ID: 123456789</div>
+                <div class="rks-container">
+                    <div class="rks-label">RKS</div>
+                    <div class="rks-value">15.2345</div>
+                </div>
+            </div>
+            <div class="logo">
+                <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Phigros%20logo%2C%20minimalist%20design%2C%20dark%20background&image_size=square" alt="Phigros Logo">
+                <div class="logo-text">xtower.site提供支持</div>
+            </div>
+        </div>
+
+        <!-- Best30 部分 -->
+        <div class="fade-in delay-1">
+            <h2 class="section-title">Best30</h2>
+            <div class="best30-grid">
+                <!-- 歌曲卡片 1 -->
+                <div class="song-card fade-in delay-2">
+                    <div class="illustration">
+                        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Phigros%20song%20illustration%2C%20electronic%20music%20theme%2C%20colorful%20abstract%20design&image_size=landscape_4_3" alt="歌曲封面">
+                        <div class="rank-badge-card rank-1">1</div>
+                        <div class="difficulty-badge diff-in">IN</div>
+                        <div class="fc-badge ap">AP</div>
+                    </div>
+                    <div class="song-info">
+                        <div class="song-name">Glaciaxion</div>
+                        <div class="score">1,000,000</div>
+                        <div class="acc-rks">Acc: 100.00% | RKS: 16.00</div>
+                        <div class="rating">
+                            <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Phi%20rating%20symbol%2C%20golden%20color%2C%20minimalist%20design&image_size=square" alt="评级">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 歌曲卡片 2 -->
+                <div class="song-card fade-in delay-3">
+                    <div class="illustration">
+                        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Phigros%20song%20illustration%2C%20dark%20theme%2C%20techno%20music%20vibes&image_size=landscape_4_3" alt="歌曲封面">
+                        <div class="rank-badge-card rank-2">2</div>
+                        <div class="difficulty-badge diff-in">IN</div>
+                        <div class="fc-badge fc">FC</div>
+                    </div>
+                    <div class="song-info">
+                        <div class="song-name">MARENOL</div>
+                        <div class="score">999,876</div>
+                        <div class="acc-rks">Acc: 99.98% | RKS: 15.98</div>
+                        <div class="rating">
+                            <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=V%20rating%20symbol%2C%20silver%20color%2C%20minimalist%20design&image_size=square" alt="评级">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 歌曲卡片 3 -->
+                <div class="song-card fade-in delay-4">
+                    <div class="illustration">
+                        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Phigros%20song%20illustration%2C%20colorful%20neon%20lights%2C%20future%20bass%20theme&image_size=landscape_4_3" alt="歌曲封面">
+                        <div class="rank-badge-card rank-3">3</div>
+                        <div class="difficulty-badge diff-at">AT</div>
+                        <div class="fc-badge fc">FC</div>
+                    </div>
+                    <div class="song-info">
+                        <div class="song-name">Rrhar'il</div>
+                        <div class="score">998,543</div>
+                        <div class="acc-rks">Acc: 99.85% | RKS: 15.95</div>
+                        <div class="rating">
+                            <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=V%20rating%20symbol%2C%20silver%20color%2C%20minimalist%20design&image_size=square" alt="评级">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 歌曲卡片 4 -->
+                <div class="song-card fade-in delay-5">
+                    <div class="illustration">
+                        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Phigros%20song%20illustration%2C%20calm%20atmosphere%2C%20piano%20theme&image_size=landscape_4_3" alt="歌曲封面">
+                        <div class="rank-badge-card rank-other">4</div>
+                        <div class="difficulty-badge diff-in">IN</div>
+                    </div>
+                    <div class="song-info">
+                        <div class="song-name">Wavetapper</div>
+                        <div class="score">997,210</div>
+                        <div class="acc-rks">Acc: 99.72% | RKS: 15.90</div>
+                        <div class="rating">
+                            <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=S%20rating%20symbol%2C%20golden%20color%2C%20minimalist%20design&image_size=square" alt="评级">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 歌曲卡片 5 -->
+                <div class="song-card fade-in delay-5">
+                    <div class="illustration">
+                        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Phigros%20song%20illustration%2C%20energetic%20beat%2C%20rock%20theme&image_size=landscape_4_3" alt="歌曲封面">
+                        <div class="rank-badge-card rank-other">5</div>
+                        <div class="difficulty-badge diff-in">IN</div>
+                        <div class="fc-badge fc">FC</div>
+                    </div>
+                    <div class="song-info">
+                        <div class="song-name">Ignotus</div>
+                        <div class="score">996,857</div>
+                        <div class="acc-rks">Acc: 99.68% | RKS: 15.85</div>
+                        <div class="rating">
+                            <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=V%20rating%20symbol%2C%20silver%20color%2C%20minimalist%20design&image_size=square" alt="评级">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 歌曲卡片 6 -->
+                <div class="song-card fade-in delay-5">
+                    <div class="illustration">
+                        <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Phigros%20song%20illustration%2C%20electronic%20dance%20music%2C%20vibrant%20colors&image_size=landscape_4_3" alt="歌曲封面">
+                        <div class="rank-badge-card rank-other">6</div>
+                        <div class="difficulty-badge diff-hd">HD</div>
+                        <div class="fc-badge ap">AP</div>
+                    </div>
+                    <div class="song-info">
+                        <div class="song-name">Cybernetics</div>
+                        <div class="score">1,000,000</div>
+                        <div class="acc-rks">Acc: 100.00% | RKS: 14.50</div>
+                        <div class="rating">
+                            <img src="https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=Phi%20rating%20symbol%2C%20golden%20color%2C%20minimalist%20design&image_size=square" alt="评级">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 挑战模式部分 -->
+        <div class="challenge-mode fade-in delay-2">
+            <h2 class="section-title">挑战模式</h2>
+            <div class="challenge-rank">
+                <div class="rank-color rank-color-gold">420</div>
+                <div class="rank-info">
+                    <div class="rank-title">金色段位</div>
+                    <div class="rank-desc">综合实力评级：优秀</div>
+                    <div class="rank-desc">三首谱面难度总和：420</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 平滑动画效果
+        document.addEventListener('DOMContentLoaded', function() {
+            // 为所有带有 fade-in 类的元素添加动画
+            const fadeElements = document.querySelectorAll('.fade-in');
+            fadeElements.forEach(element => {
+                element.style.opacity = '0';
+                element.style.transform = 'translateY(20px)';
+                element.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+            });
+
+            // 当元素进入视口时触发动画
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.style.opacity = '1';
+                        entry.target.style.transform = 'translateY(0)';
+                        observer.unobserve(entry.target);
+                    }
+                });
+            }, {
+                threshold: 0.1
+            });
+
+            fadeElements.forEach(element => {
+                observer.observe(element);
+            });
+
+            // RKS 数值动画
+            const rksValue = document.querySelector('.rks-value');
+            if (rksValue) {
+                const targetRKS = 15.2345;
+                let currentRKS = 0;
+                const duration = 2000; // 动画持续时间（毫秒）
+                const startTime = performance.now();
+
+                function updateRKS(currentTime) {
+                    const elapsed = currentTime - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+                    
+                    // 使用缓动函数使动画更自然
+                    const easeOutQuad = 1 - (1 - progress) * (1 - progress);
+                    currentRKS = targetRKS * easeOutQuad;
+                    
+                    rksValue.textContent = currentRKS.toFixed(4);
+                    
+                    if (progress < 1) {
+                        requestAnimationFrame(updateRKS);
+                    }
+                }
+
+                requestAnimationFrame(updateRKS);
+            }
+        });
+    </script>
+</body>
+</html>

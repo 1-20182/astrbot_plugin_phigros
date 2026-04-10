@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Phigros 插件前端界面，提供玩家数据、歌曲搜索、RKS历史和排行榜等功能">
+    <meta name="theme-color" content="#1a1a2e">
+    <title>Phigros 插件前端</title>
+    <link rel="stylesheet" href="assets/css/style.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar" aria-label="主导航">
+        <div class="container">
+            <div class="navbar-brand">
+                <img src="assets/images/logo.png" alt="Phigros" class="logo" aria-hidden="true">
+                <h1>Phigros 插件</h1>
+            </div>
+            <div class="navbar-menu">
+                <ul class="nav-links" role="menubar" aria-label="导航菜单">
+                    <li role="none"><a href="#player-stats" class="nav-link active" role="menuitem" aria-current="page">玩家数据</a></li>
+                    <li role="none"><a href="#song-search" class="nav-link" role="menuitem">歌曲搜索</a></li>
+                    <li role="none"><a href="#rks-history" class="nav-link" role="menuitem">RKS历史</a></li>
+                    <li role="none"><a href="#leaderboard" class="nav-link" role="menuitem">排行榜</a></li>
+                    <li role="none"><a href="#updates" class="nav-link" role="menuitem">新曲速递</a></li>
+                    <li role="none"><a href="#auth" class="nav-link" role="menuitem">登录/注册</a></li>
+                </ul>
+                <button class="mobile-menu-btn" aria-expanded="false" aria-controls="nav-links" aria-label="打开菜单">
+                    <span aria-hidden="true"></span>
+                    <span aria-hidden="true"></span>
+                    <span aria-hidden="true"></span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主内容 -->
+    <main class="main-content">
+        <!-- 玩家数据部分 -->
+        <section id="player-stats" class="section">
+            <div class="container">
+                <h2 class="section-title">玩家数据</h2>
+                <div class="player-card">
+                    <div class="player-avatar">
+                        <img src="assets/images/avatar.png" alt="Avatar">
+                    </div>
+                    <div class="player-info">
+                        <h3 class="player-name">玩家名称</h3>
+                        <p class="player-id">ID: 123456789</p>
+                        <div class="rks-display">
+                            <span class="rks-label">RKS</span>
+                            <span class="rks-value">15.0000</span>
+                        </div>
+                    </div>
+                    <div class="rank-badge">
+                        <span class="rank-text">1</span>
+                    </div>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h4>Best30</h4>
+                        <p class="stat-value">15.5000</p>
+                    </div>
+                    <div class="stat-card">
+                        <h4>Recent10</h4>
+                        <p class="stat-value">14.8000</p>
+                    </div>
+                    <div class="stat-card">
+                        <h4>总游玩次数</h4>
+                        <p class="stat-value">1234</p>
+                    </div>
+                    <div class="stat-card">
+                        <h4>课题模式</h4>
+                        <p class="stat-value">450+</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 歌曲搜索部分 -->
+        <section id="song-search" class="section">
+            <div class="container">
+                <h2 class="section-title">歌曲搜索</h2>
+                <div class="search-container" role="search">
+                    <div class="search-input-wrapper">
+                        <label for="searchInput" class="sr-only">搜索歌曲</label>
+                        <input type="text" class="search-input" id="searchInput" placeholder="输入歌曲名称或曲师" autocomplete="off" aria-describedby="search-description">
+                        <div class="sr-only" id="search-description">输入歌曲名称或曲师进行搜索</div>
+                        <div class="search-suggestions" id="searchSuggestions" role="listbox" aria-label="搜索建议"></div>
+                    </div>
+                    <button class="search-btn" id="searchBtn" aria-label="执行搜索">搜索</button>
+                </div>
+                <div class="song-results" id="songResults">
+                    <div class="song-card">
+                        <div class="song-illustration">
+                            <img src="assets/images/song-placeholder.png" alt="Song Illustration">
+                            <div class="diff-badge">IN</div>
+                        </div>
+                        <div class="song-info">
+                            <h3 class="song-name">Example Song</h3>
+                            <p class="song-composer">Composer Name</p>
+                            <div class="song-stats">
+                                <span class="diff-ez">EZ: 12</span>
+                                <span class="diff-hd">HD: 14</span>
+                                <span class="diff-in">IN: 16</span>
+                                <span class="diff-at">AT: 18</span>
+                            </div>
+                        </div>
+                        <div class="song-score">
+                            <p class="score-value">999,999</p>
+                            <p class="score-acc">99.99%</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 歌曲详情部分 -->
+        <section id="song-details" class="section" style="display: none;">
+            <div class="container">
+                <div class="song-detail-header">
+                    <button class="back-btn" id="backBtn">&larr; 返回搜索</button>
+                    <h2 class="section-title">歌曲详情</h2>
+                </div>
+                <div class="song-detail-content">
+                    <div class="song-detail-illustration">
+                        <img src="assets/images/song-placeholder.png" alt="Song Illustration" id="detailIllustration">
+                    </div>
+                    <div class="song-detail-info">
+                        <h3 class="song-detail-name" id="detailSongName">Example Song</h3>
+                        <p class="song-detail-composer" id="detailComposer">Composer Name</p>
+                        <div class="song-detail-difficulties">
+                            <h4>难度等级</h4>
+                            <div class="difficulty-bars">
+                                <div class="difficulty-bar">
+                                    <span class="diff-label">EZ</span>
+                                    <div class="diff-bar-container">
+                                        <div class="diff-bar" style="width: 60%;" id="ezBar"></div>
+                                    </div>
+                                    <span class="diff-value" id="ezValue">12</span>
+                                </div>
+                                <div class="difficulty-bar">
+                                    <span class="diff-label">HD</span>
+                                    <div class="diff-bar-container">
+                                        <div class="diff-bar" style="width: 70%;" id="hdBar"></div>
+                                    </div>
+                                    <span class="diff-value" id="hdValue">14</span>
+                                </div>
+                                <div class="difficulty-bar">
+                                    <span class="diff-label">IN</span>
+                                    <div class="diff-bar-container">
+                                        <div class="diff-bar" style="width: 80%;" id="inBar"></div>
+                                    </div>
+                                    <span class="diff-value" id="inValue">16</span>
+                                </div>
+                                <div class="difficulty-bar">
+                                    <span class="diff-label">AT</span>
+                                    <div class="diff-bar-container">
+                                        <div class="diff-bar" style="width: 90%;" id="atBar"></div>
+                                    </div>
+                                    <span class="diff-value" id="atValue">18</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="song-detail-stats">
+                            <h4>图表常量</h4>
+                            <div class="chart-constants">
+                                <div class="constant-item">
+                                    <span class="constant-label">物量</span>
+                                    <span class="constant-value" id="noteCount">1234</span>
+                                </div>
+                                <div class="constant-item">
+                                    <span class="constant-label">BPM</span>
+                                    <span class="constant-value" id="bpm">180</span>
+                                </div>
+                                <div class="constant-item">
+                                    <span class="constant-label">时长</span>
+                                    <span class="constant-value" id="duration">2:30</span>
+                                </div>
+                                <div class="constant-item">
+                                    <span class="constant-label">定数</span>
+                                    <span class="constant-value" id="constant">16.0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="song-detail-scores">
+                    <h4>个人成绩</h4>
+                    <div class="score-cards">
+                        <div class="score-card">
+                            <span class="score-diff">EZ</span>
+                            <span class="score-number">999,999</span>
+                            <span class="score-accuracy">99.99%</span>
+                            <span class="score-rank">S</span>
+                        </div>
+                        <div class="score-card">
+                            <span class="score-diff">HD</span>
+                            <span class="score-number">999,999</span>
+                            <span class="score-accuracy">99.99%</span>
+                            <span class="score-rank">S</span>
+                        </div>
+                        <div class="score-card">
+                            <span class="score-diff">IN</span>
+                            <span class="score-number">999,999</span>
+                            <span class="score-accuracy">99.99%</span>
+                            <span class="score-rank">S</span>
+                        </div>
+                        <div class="score-card">
+                            <span class="score-diff">AT</span>
+                            <span class="score-number">999,999</span>
+                            <span class="score-accuracy">99.99%</span>
+                            <span class="score-rank">S</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- RKS历史部分 -->
+        <section id="rks-history" class="section">
+            <div class="container">
+                <h2 class="section-title">RKS历史</h2>
+                <div class="rks-stats">
+                    <div class="rks-stat-item">
+                        <span class="rks-stat-label">当前RKS</span>
+                        <span class="rks-stat-value" id="currentRks">15.0000</span>
+                    </div>
+                    <div class="rks-stat-item">
+                        <span class="rks-stat-label">峰值RKS</span>
+                        <span class="rks-stat-value" id="peakRks">15.2000</span>
+                    </div>
+                </div>
+                <div class="history-chart">
+                    <canvas id="rksChart"></canvas>
+                </div>
+                <div class="history-list" id="historyList">
+                </div>
+            </div>
+        </section>
+
+        <!-- 排行榜部分 -->
+        <section id="leaderboard" class="section">
+            <div class="container">
+                <h2 class="section-title">RKS排行榜</h2>
+                <div class="leaderboard-list" id="leaderboardList">
+                    <!-- 排行榜项目将通过JavaScript动态生成 -->
+                </div>
+                <div class="pagination" id="pagination">
+                    <button class="pagination-btn" id="prevPage">上一页</button>
+                    <div class="pagination-numbers" id="paginationNumbers">
+                        <!-- 页码将通过JavaScript动态生成 -->
+                    </div>
+                    <button class="pagination-btn" id="nextPage">下一页</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 新曲速递部分 -->
+        <section id="updates" class="section">
+            <div class="container">
+                <h2 class="section-title">新曲速递</h2>
+                <div class="update-timeline">
+                    <!-- 版本 3.0.0 更新 -->
+                    <div class="update-card">
+                        <div class="update-header">
+                            <div class="update-version-badge">
+                                <span class="version-number">3.0.0</span>
+                            </div>
+                            <div class="update-date">2024-01-01</div>
+                        </div>
+                        <div class="update-content">
+                            <h3 class="update-title">版本 3.0.0 更新</h3>
+                            <div class="song-updates">
+                                <div class="song-update-item">
+                                    <div class="song-icon">🎵</div>
+                                    <div class="song-info">
+                                        <h4 class="song-name">Example Song</h4>
+                                        <p class="song-composer">Composer Name</p>
+                                    </div>
+                                    <div class="song-diff">
+                                        <span class="diff-badge ez">EZ</span>
+                                        <span class="diff-badge hd">HD</span>
+                                        <span class="diff-badge in">IN</span>
+                                        <span class="diff-badge at">AT</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="update-changes">
+                                <h4>其他更新</h4>
+                                <ul>
+                                    <li>优化游戏体验</li>
+                                    <li>修复已知问题</li>
+                                    <li>改进视觉效果</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 版本 2.9.0 更新 -->
+                    <div class="update-card">
+                        <div class="update-header">
+                            <div class="update-version-badge">
+                                <span class="version-number">2.9.0</span>
+                            </div>
+                            <div class="update-date">2023-11-15</div>
+                        </div>
+                        <div class="update-content">
+                            <h3 class="update-title">版本 2.9.0 更新</h3>
+                            <div class="song-updates">
+                                <div class="song-update-item">
+                                    <div class="song-icon">🎵</div>
+                                    <div class="song-info">
+                                        <h4 class="song-name">Another Song</h4>
+                                        <p class="song-composer">Another Composer</p>
+                                    </div>
+                                    <div class="song-diff">
+                                        <span class="diff-badge ez">EZ</span>
+                                        <span class="diff-badge hd">HD</span>
+                                        <span class="diff-badge in">IN</span>
+                                    </div>
+                                </div>
+                                <div class="song-update-item">
+                                    <div class="song-icon">🎵</div>
+                                    <div class="song-info">
+                                        <h4 class="song-name">Third Song</h4>
+                                        <p class="song-composer">Third Composer</p>
+                                    </div>
+                                    <div class="song-diff">
+                                        <span class="diff-badge ez">EZ</span>
+                                        <span class="diff-badge hd">HD</span>
+                                        <span class="diff-badge in">IN</span>
+                                        <span class="diff-badge at">AT</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="update-changes">
+                                <h4>其他更新</h4>
+                                <ul>
+                                    <li>新增游戏模式</li>
+                                    <li>优化性能</li>
+                                    <li>修复bug</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 版本 2.8.0 更新 -->
+                    <div class="update-card">
+                        <div class="update-header">
+                            <div class="update-version-badge">
+                                <span class="version-number">2.8.0</span>
+                            </div>
+                            <div class="update-date">2023-09-01</div>
+                        </div>
+                        <div class="update-content">
+                            <h3 class="update-title">版本 2.8.0 更新</h3>
+                            <div class="song-updates">
+                                <div class="song-update-item">
+                                    <div class="song-icon">🎵</div>
+                                    <div class="song-info">
+                                        <h4 class="song-name">Fourth Song</h4>
+                                        <p class="song-composer">Fourth Composer</p>
+                                    </div>
+                                    <div class="song-diff">
+                                        <span class="diff-badge ez">EZ</span>
+                                        <span class="diff-badge hd">HD</span>
+                                        <span class="diff-badge in">IN</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="update-changes">
+                                <h4>其他更新</h4>
+                                <ul>
+                                    <li>界面优化</li>
+                                    <li>新增成就系统</li>
+                                    <li>修复已知问题</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 登录/注册部分 -->
+        <section id="auth" class="section">
+            <div class="container">
+                <h2 class="section-title">登录/注册</h2>
+                <div class="auth-container">
+                    <div class="auth-tabs" role="tablist" aria-label="认证选项">
+                        <button class="auth-tab active" data-tab="login" id="login-tab" role="tab" aria-selected="true" aria-controls="login-form">登录</button>
+                        <button class="auth-tab" data-tab="register" id="register-tab" role="tab" aria-selected="false" aria-controls="register-form">注册</button>
+                        <button class="auth-tab" data-tab="token" id="token-tab" role="tab" aria-selected="false" aria-controls="token-form">会话令牌</button>
+                    </div>
+                    
+                    <!-- 登录表单 -->
+                    <div class="auth-form login-form active" id="login-form" aria-labelledby="login-tab" role="tabpanel">
+                        <div class="form-group">
+                            <label for="login-username">用户名</label>
+                            <input type="text" id="login-username" class="form-input" placeholder="请输入用户名" required aria-required="true">
+                        </div>
+                        <div class="form-group">
+                            <label for="login-password">密码</label>
+                            <input type="password" id="login-password" class="form-input" placeholder="请输入密码" required aria-required="true">
+                        </div>
+                        <button class="auth-btn" id="login-btn" type="button">登录</button>
+                    </div>
+                    
+                    <!-- 注册表单 -->
+                    <div class="auth-form register-form" id="register-form" aria-labelledby="register-tab" role="tabpanel" hidden>
+                        <div class="form-group">
+                            <label for="register-username">用户名</label>
+                            <input type="text" id="register-username" class="form-input" placeholder="请输入用户名" required aria-required="true">
+                        </div>
+                        <div class="form-group">
+                            <label for="register-password">密码</label>
+                            <input type="password" id="register-password" class="form-input" placeholder="请输入密码" required aria-required="true">
+                        </div>
+                        <div class="form-group">
+                            <label for="register-confirm-password">确认密码</label>
+                            <input type="password" id="register-confirm-password" class="form-input" placeholder="请确认密码" required aria-required="true" aria-describedby="password-match">
+                            <div class="sr-only" id="password-match">请输入与上面相同的密码</div>
+                        </div>
+                        <button class="auth-btn" id="register-btn" type="button">注册</button>
+                    </div>
+                    
+                    <!-- 会话令牌表单 -->
+                    <div class="auth-form token-form" id="token-form" aria-labelledby="token-tab" role="tabpanel" hidden>
+                        <div class="form-group">
+                            <label for="session-token">会话令牌</label>
+                            <input type="text" id="session-token" class="form-input" placeholder="请输入会话令牌" required aria-required="true">
+                        </div>
+                        <div class="form-group">
+                            <label for="token-expiry">过期时间</label>
+                            <input type="datetime-local" id="token-expiry" class="form-input" required aria-required="true">
+                        </div>
+                        <button class="auth-btn" id="save-token-btn" type="button">保存令牌</button>
+                    </div>
+                    
+                    <!-- 登录状态 -->
+                    <div class="auth-status" id="auth-status">
+                        <p>未登录</p>
+                        <button class="auth-btn secondary" id="logout-btn" style="display: none;">退出登录</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="footer">
+        <div class="container">
+            <p>© 2024 Phigros 插件 | 基于 phi-plugin 设计</p>
+        </div>
+    </footer>
+
+    <script src="assets/js/main.min.js"></script>
+</body>
+</html>
