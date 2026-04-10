@@ -33,3 +33,12 @@ env/
 build/
 dist/
 *.egg-info/AstrBot/
+
+# AstrBot 目录
+AstrBot/
+
+# 临时脚本
+list_commands.py
+
+# 规范目录
+.trae/

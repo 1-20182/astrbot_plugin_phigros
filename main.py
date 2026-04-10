@@ -143,7 +143,7 @@ class PhigrosPlugin(Star):
         self.plugin_config = config or {}
         logger.info(f"Phigros 插件配置: {self.plugin_config}")
 
-        # 初始化命令处理器
+        # 命令处理器实例
         self.auth_commands = AuthCommands(self)
         self.query_commands = QueryCommands(self)
         self.other_commands = OtherCommands(self)
@@ -548,9 +548,164 @@ class PhigrosPlugin(Star):
             logger.error(f"提取 Best30 数据失败: {e}")
             return None
 
+    # ==================== 命令: 认证相关 ====================
+    @filter.command("phi_bind")
+    async def phi_bind(self, event: AstrMessageEvent, session_token: str, taptap_version: str = "cn"):
+        """
+        绑定 Phigros 账号（保存 sessionToken）
+        用法: /phi_bind <sessionToken> [taptapVersion]
+        示例: /phi_bind uhrmqs8v0mmn0ikzxqgozrctr cn
+        """
+        async for result in self.auth_commands.bind_user(event, session_token, taptap_version):
+            yield result
+
+    @filter.command("phi_qrlogin")
+    async def phi_qrlogin(self, event: AstrMessageEvent, taptap_version: str = "cn"):
+        """
+        使用 TapTap 扫码登录（自动获取 sessionToken）
+        用法: /phi_qrlogin [taptapVersion]
+        示例: /phi_qrlogin cn
+        """
+        async for result in self.auth_commands.qr_login(event, taptap_version):
+            yield result
+
+    @filter.command("phi_unbind")
+    async def phi_unbind(self, event: AstrMessageEvent):
+        """
+        解绑 Phigros 账号
+        用法: /phi_unbind
+        """
+        async for result in self.auth_commands.unbind_user(event):
+            yield result
+
+    # ==================== 命令: 查询相关 ====================
+    @filter.command("phi_save")
+    async def phi_save(self, event: AstrMessageEvent, session_token: str = None, taptap_version: str = None):
+        """
+        获取 Phigros 云存档数据
+        用法: /phi_save [sessionToken] [taptapVersion]
+        示例: /phi_save uhrmqs8v0mmn0ikzxqgozrctr cn
+        提示: 如果已绑定账号，可以不填 sessionToken
+        """
+        async for result in self.query_commands.get_save(event, session_token, taptap_version):
+            yield result
+
+    @filter.command("phi_b30")
+    async def phi_b30(self, event: AstrMessageEvent, session_token: str = None, taptap_version: str = None, theme: str = "black"):
+        """
+        获取 Best 30 成绩图（API直接生成SVG）
+        用法: /phi_b30 [sessionToken] [taptapVersion] [theme]
+        示例: /phi_b30 或 /phi_b30 your_token cn black
+        提示: 如果已绑定账号，可以不填 sessionToken
+        """
+        async for result in self.query_commands.get_best30(event, session_token, taptap_version, theme):
+            yield result
+
+    @filter.command("phi_rks_history")
+    async def phi_rks_history(self, event: AstrMessageEvent, session_token: str = None, limit: int = None):
+        """
+        查询 RKS 历史变化
+        用法: /phi_rks_history [sessionToken] [limit]
+        示例: /phi_rks_history uhrmqs8v0mmn0ikzxqgozrctr 10
+        提示: 如果已绑定账号，可以不填 sessionToken
+        """
+        async for result in self.query_commands.get_rks_history(event, session_token, limit):
+            yield result
+
+    @filter.command("phi_leaderboard")
+    async def phi_leaderboard(self, event: AstrMessageEvent):
+        """
+        获取 RKS 排行榜 Top（带图片）
+        用法: /phi_leaderboard
+        """
+        async for result in self.query_commands.get_leaderboard(event):
+            yield result
+
+    @filter.command("phi_rank")
+    async def phi_rank(self, event: AstrMessageEvent, start: int = None, end: int = None):
+        """
+        按排名区间查询玩家
+        用法: /phi_rank <start> [end]
+        示例: /phi_rank 1 10 或 /phi_rank 100
+        """
+        async for result in self.query_commands.get_by_rank(event, start, end):
+            yield result
+
+    @filter.command("phi_search")
+    async def phi_search(self, event: AstrMessageEvent, keyword: str, limit: int = None):
+        """
+        搜索 Phigros 曲目
+        用法: /phi_search <关键词> [limit]
+        示例: /phi_search Originally 5
+        """
+        async for result in self.query_commands.search_songs(event, keyword, limit):
+            yield result
+
+    @filter.command("phi_song")
+    async def phi_song(self, event: AstrMessageEvent, song_id: str):
+        """
+        获取指定歌曲的成绩图
+        用法: /phi_song <歌曲ID>
+        示例: /phi_song 曲名.曲师
+        提示: 使用 /phi_search 搜索歌曲获取准确的歌曲ID
+        注意: 需要先绑定账号或扫码登录
+        """
+        async for result in self.query_commands.get_song_image(event, song_id):
+            yield result
+
+    @filter.command("phi_updates")
+    async def phi_updates(self, event: AstrMessageEvent, count: int = 3):
+        """
+        获取 Phigros 新曲速递
+        用法: /phi_updates [count]
+        示例: /phi_updates 3
+        """
+        async for result in self.query_commands.get_updates(event, count):
+            yield result
+
+    @filter.command("phi_bn")
+    async def phi_bn(self, event: AstrMessageEvent, n: int = 30, theme: str = "black"):
+        """
+        获取 BestN 成绩图（API直接生成SVG）
+        用法: /phi_bn [n] [theme]
+        示例: /phi_bn 27 black
+        参数: n=成绩数量(1-50), theme=black/white
+        💡 已绑定账号可直接使用 /phi_bn
+        """
+        async for result in self.query_commands.get_bestn(event, n, theme):
+            yield result
+
+    # ==================== 命令: 其他 ====================
+    @filter.command("phi_help")
+    async def phi_help(self, event: AstrMessageEvent):
+        """
+        获取帮助信息
+        用法: /phi_help
+        """
+        async for result in self.other_commands.get_help(event):
+            yield result
+
+    @filter.command("phi_video")
+    async def phi_video(self, event: AstrMessageEvent):
+        """
+        发送随机 Phigros 视频
+        用法: /phi_video
+        """
+        async for result in self.other_commands.send_random_video(event):
+            yield result
+
+    @filter.command("phi_video_list")
+    async def phi_video_list(self, event: AstrMessageEvent):
+        """
+        列出所有可用视频
+        用法: /phi_video_list
+        """
+        async for result in self.other_commands.list_videos(event):
+            yield result
+
     # ==================== 命令: 监控指标 ====================
     @filter.command("phi_metrics")
-    async def show_metrics(self, event: AstrMessageEvent):
+    async def phi_metrics(self, event: AstrMessageEvent):
         """
         显示 API 监控指标
         用法: /phi_metrics
@@ -585,7 +740,7 @@ class PhigrosPlugin(Star):
                     msg_parts.append(f"     调用: {data['total_calls']}\n")
                     msg_parts.append(f"     错误: {data['errors']}\n\n")
             
-            yield event.plain_result("".join(msg_parts))
+            yield event.plain_result("" .join(msg_parts))
             
             # 同时记录到日志
             await self.api_monitor.log_metrics()
