@@ -72,6 +72,7 @@ class TapTapLoginManagerAPI:
         self._session_token: Optional[str] = None
         self._error_message: Optional[str] = None
         self._qr_id: Optional[str] = None
+        self._session_created = False
 
     def _get_headers(self) -> Dict[str, str]:
         """获取请求头"""
@@ -93,6 +94,31 @@ class TapTapLoginManagerAPI:
         self._current_status = LoginStatus.QR_GENERATING
 
         try:
+            # 检查并创建 session
+            if self.session is None:
+                logger.info("session 为 None，创建新的 aiohttp.ClientSession")
+                timeout = aiohttp.ClientTimeout(
+                    total=30,
+                    connect=10,
+                    sock_read=20
+                )
+                connector = aiohttp.TCPConnector(
+                    limit=50,
+                    limit_per_host=20,
+                    enable_cleanup_closed=True,
+                    force_close=False,
+                    ttl_dns_cache=300,
+                    keepalive_timeout=30,
+                    ssl=False
+                )
+                self.session = aiohttp.ClientSession(
+                    timeout=timeout,
+                    connector=connector,
+                    headers={"User-Agent": "PhigrosQueryBot/2.0.0"}
+                )
+                self._session_created = True
+                logger.info("✅ 新的 aiohttp.ClientSession 创建成功")
+
             url = f"{self.base_url}/auth/qrcode"
             params = {"taptapVersion": taptap_version}
 
@@ -188,6 +214,31 @@ class TapTapLoginManagerAPI:
             return {"status": "error", "error": "qrId 未设置"}
 
         try:
+            # 检查并创建 session
+            if self.session is None:
+                logger.info("session 为 None，创建新的 aiohttp.ClientSession")
+                timeout = aiohttp.ClientTimeout(
+                    total=30,
+                    connect=10,
+                    sock_read=20
+                )
+                connector = aiohttp.TCPConnector(
+                    limit=50,
+                    limit_per_host=20,
+                    enable_cleanup_closed=True,
+                    force_close=False,
+                    ttl_dns_cache=300,
+                    keepalive_timeout=30,
+                    ssl=False
+                )
+                self.session = aiohttp.ClientSession(
+                    timeout=timeout,
+                    connector=connector,
+                    headers={"User-Agent": "PhigrosQueryBot/2.0.0"}
+                )
+                self._session_created = True
+                logger.info("✅ 新的 aiohttp.ClientSession 创建成功")
+
             url = f"{self.base_url}/auth/qrcode/{self._qr_id}/status"
 
             async with self.session.get(
@@ -365,3 +416,14 @@ class TapTapLoginManagerAPI:
     def qr_id(self) -> Optional[str]:
         """获取二维码 ID"""
         return self._qr_id
+
+    async def terminate(self):
+        """
+        清理资源，关闭创建的 session
+        """
+        if self.session and self._session_created:
+            try:
+                await self.session.close()
+                logger.info("✅ 已关闭创建的 aiohttp.ClientSession")
+            except Exception as e:
+                logger.warning(f"关闭 session 时出错: {e}")

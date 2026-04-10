@@ -181,6 +181,12 @@ class AuthCommands:
 
         except Exception as e:
             yield event.plain_result(f"❌ 扫码登录过程出错: {str(e)}")
+        finally:
+            # 清理资源
+            try:
+                await login_manager.terminate()
+            except Exception as e:
+                logger.warning(f"清理登录管理器资源时出错: {e}")
 
     @filter.command("phi_unbind")
     async def unbind_user(self, event: AstrMessageEvent):
