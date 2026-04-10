@@ -545,10 +545,10 @@ class QueryCommands:
                     ])
                 else:
                     # 渲染失败，回退到文本输出
-                    yield from self._get_updates_text(data, count)
+                    yield self._get_updates_text(data, count)
             else:
                 # 渲染器不可用，使用文本输出
-                yield from self._get_updates_text(data, count)
+                yield self._get_updates_text(data, count)
 
         except Exception as e:
             yield event.plain_result(f"❌ 获取新曲速递失败: {str(e)}")
@@ -573,7 +573,7 @@ class QueryCommands:
                         msg_parts.append(f"{line}\n")
             msg_parts.append("\n")
 
-        yield Plain("".join(msg_parts))
+        return Plain("" .join(msg_parts))
 
     @filter.command("phi_bn")
     async def get_bestn(self, event: AstrMessageEvent, n: int = 30, theme: str = "black"):
