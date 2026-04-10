@@ -42,3 +42,6 @@ list_commands.py
 
 # 规范目录
 .trae/
+
+# 备份目录
+backups/
