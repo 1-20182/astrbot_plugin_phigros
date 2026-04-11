@@ -113,7 +113,7 @@ except ImportError as e:
 
 
 
-@register("astrbot_plugin_phigros", "Assistant", "Phigros 音游数据查询插件", "1.8.0")
+@register("astrbot_plugin_phigros", "Assistant", "Phigros 音游数据查询插件", "1.9.6")
 class PhigrosPlugin(Star):
     """
     🎮 Phigros 音游数据查询插件
