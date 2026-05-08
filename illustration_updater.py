@@ -23,7 +23,7 @@ class IllustrationUpdater:
     🎨 曲绘自动更新器
     
     帮你自动从 GitHub 下载最新曲绘
-    支持代理、定时检查、增量更新、多源自动切换
+    支持代理、断点续传、增量更新、多源自动切换、镜像站加速
     """
     
     # 多源 GitHub 仓库配置（按优先级排序）
@@ -39,6 +39,34 @@ class IllustrationUpdater:
             "branch": "main",
             "priority": 2,
             "description": "备用曲绘仓库"
+        }
+    ]
+    
+    # GitHub 镜像站配置（按优先级排序）
+    MIRROR_SOURCES = [
+        {
+            "name": "ghproxy",
+            "url": "https://ghproxy.com/{url}",
+            "priority": 1,
+            "description": "ghproxy镜像"
+        },
+        {
+            "name": "mirror.ghproxy",
+            "url": "https://mirror.ghproxy.com/{url}",
+            "priority": 2,
+            "description": "mirror.ghproxy镜像"
+        },
+        {
+            "name": "fastgit",
+            "url": "https://hub.fastgit.xyz/{url}",
+            "priority": 3,
+            "description": "FastGit镜像"
+        },
+        {
+            "name": "pd.zwc365.com",
+            "url": "https://pd.zwc365.com/{url}",
+            "priority": 4,
+            "description": "PD镜像"
         }
     ]
     
@@ -73,6 +101,9 @@ class IllustrationUpdater:
         
         # 当前使用的源
         self._current_source = None
+        
+        # 当前使用的镜像
+        self._current_mirror = None
         
         logger.info(f"🎨 曲绘更新器初始化完成: {self.illustration_path}")
     
@@ -315,9 +346,43 @@ class IllustrationUpdater:
         logger.error("获取文件列表失败，已达到最大重试次数（所有源）")
         return []
     
+    def _get_mirror_url(self, original_url: str, mirror: Optional[Dict] = None) -> str:
+        """
+        获取镜像站URL
+        
+        Args:
+            original_url: 原始GitHub URL
+            mirror: 镜像配置
+            
+        Returns:
+            镜像站URL
+        """
+        if not mirror:
+            return original_url
+        
+        # 替换URL模板中的{url}占位符
+        return mirror["url"].format(url=original_url)
+    
+    def _get_available_mirrors(self) -> List[Dict]:
+        """
+        获取可用的镜像列表（按优先级排序）
+        
+        Returns:
+            可用的镜像列表
+        """
+        # 如果有记录的镜像，优先使用
+        last_mirror = self._state.get("mirror_name")
+        if last_mirror:
+            mirrors = [
+                m for m in self.MIRROR_SOURCES if m["name"] == last_mirror
+            ] + [m for m in self.MIRROR_SOURCES if m["name"] != last_mirror]
+            return mirrors
+        
+        return self.MIRROR_SOURCES
+    
     async def _download_file(self, file_info: Dict, progress_callback=None) -> bool:
         """
-        下载单个文件（支持断点续传）
+        下载单个文件（支持断点续传、镜像站加速）
         
         Args:
             file_info: 文件信息
@@ -330,15 +395,17 @@ class IllustrationUpdater:
         download_url = file_info.get("download_url", "")
         remote_size = file_info.get("size", 0)
         
-        if not file_name or not download_url:
-            # 如果没有download_url，尝试从当前源构建
-            if self._current_source:
-                repo = self._current_source["repo"]
-                branch = self._current_source["branch"]
-                download_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{self.ILLUSTRATION_PATH}/{file_name}"
-                logger.info(f"🔧 自行构建下载链接: {download_url}")
-            else:
-                return False
+        if not file_name:
+            return False
+        
+        # 构建原始下载URL
+        if not download_url and self._current_source:
+            repo = self._current_source["repo"]
+            branch = self._current_source["branch"]
+            download_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{self.ILLUSTRATION_PATH}/{file_name}"
+        
+        if not download_url:
+            return False
         
         # 检查本地是否已存在且大小相同
         local_path = self.illustration_path / file_name
@@ -360,48 +427,80 @@ class IllustrationUpdater:
             local_size = 0
             headers = None
         
-        retries = 5  # 增加重试次数
-        for attempt in range(retries):
-            try:
-                resp = await self._fetch_with_proxy(download_url, headers)
-                if not resp:
-                    logger.warning(f"❌ 无法下载: {file_name}")
-                    await asyncio.sleep(2 ** attempt)
-                    continue
-                
-                # 处理响应
-                mode = 'ab' if local_size > 0 else 'wb'
-                content_length = int(resp.headers.get('Content-Length', 0))
-                
-                # 保存文件
-                async with aiofiles.open(local_path, mode) as f:
-                    if content_length > 0:
-                        # 分块下载
-                        async for chunk in resp.content:
-                            if chunk:
-                                await f.write(chunk)
+        # 获取可用的镜像列表
+        available_mirrors = self._get_available_mirrors()
+        
+        # 首先尝试直接下载
+        download_urls = [(download_url, None)]
+        
+        # 添加镜像站URL
+        for mirror in available_mirrors:
+            mirror_url = self._get_mirror_url(download_url, mirror)
+            download_urls.append((mirror_url, mirror))
+        
+        # 尝试所有URL
+        for url, mirror in download_urls:
+            mirror_name = mirror["name"] if mirror else "GitHub直连"
+            retries = 5
+            
+            for attempt in range(retries):
+                try:
+                    resp = await self._fetch_with_proxy(url, headers)
+                    if not resp:
+                        if attempt < retries - 1:
+                            logger.warning(f"⚠️ {mirror_name} 下载失败 {file_name}，重试 {attempt+1}/{retries}")
+                            await asyncio.sleep(2 ** attempt)
+                        continue
+                    
+                    # 检查响应状态
+                    if resp.status >= 400:
+                        if attempt < retries - 1:
+                            logger.warning(f"⚠️ {mirror_name} 返回错误 {resp.status}，重试 {attempt+1}/{retries}")
+                            await asyncio.sleep(2 ** attempt)
+                        continue
+                    
+                    # 处理响应
+                    mode = 'ab' if local_size > 0 else 'wb'
+                    content_length = int(resp.headers.get('Content-Length', 0))
+                    
+                    # 保存文件
+                    async with aiofiles.open(local_path, mode) as f:
+                        if content_length > 0:
+                            # 分块下载
+                            async for chunk in resp.content:
+                                if chunk:
+                                    await f.write(chunk)
+                        else:
+                            content = await resp.read()
+                            await f.write(content)
+                    
+                    # 验证文件大小
+                    final_size = local_path.stat().st_size
+                    if remote_size == 0 or final_size >= remote_size * 0.9:  # 允许10%的误差
+                        logger.debug(f"✅ 下载完成: {file_name} (来源: {mirror_name})")
+                        
+                        # 更新当前镜像
+                        if mirror:
+                            self._current_mirror = mirror
+                            self._state["mirror_name"] = mirror["name"]
+                            logger.info(f"🌐 使用镜像站: {mirror['description']}")
+                        
+                        if progress_callback:
+                            await progress_callback(file_name)
+                        
+                        return True
                     else:
-                        content = await resp.read()
-                        await f.write(content)
-                
-                # 验证文件大小
-                final_size = local_path.stat().st_size
-                if remote_size == 0 or final_size == remote_size:
-                    logger.debug(f"✅ 下载完成: {file_name}")
+                        logger.warning(f"⚠️ 文件大小不匹配: {file_name} (期望: {remote_size}, 实际: {final_size})")
+                        await asyncio.sleep(2 ** attempt)
+                        continue
                     
-                    if progress_callback:
-                        await progress_callback(file_name)
-                    
-                    return True
-                else:
-                    logger.warning(f"⚠️ 文件大小不匹配: {file_name} (期望: {remote_size}, 实际: {final_size})")
-                    await asyncio.sleep(2 ** attempt)
+                except Exception as e:
+                    if attempt < retries - 1:
+                        logger.warning(f"⚠️ {mirror_name} 下载失败 {file_name} (尝试 {attempt+1}/{retries}): {e}")
+                        await asyncio.sleep(2 ** attempt)
                     continue
-                
-            except Exception as e:
-                logger.warning(f"下载失败 {file_name} (尝试 {attempt+1}/{retries}): {e}")
-                await asyncio.sleep(2 ** attempt)
-                continue
+            
+            logger.warning(f"❌ {mirror_name} 下载失败，尝试下一个源...")
         
         return False
     
@@ -498,7 +597,8 @@ class IllustrationUpdater:
             "total_downloaded": self._state.get("total_downloaded", 0),
             "is_first_run": self._state.get("is_first_run", True),
             "source_repo": self._state.get("source_repo", "未知"),
-            "source_branch": self._state.get("source_branch", "未知")
+            "source_branch": self._state.get("source_branch", "未知"),
+            "mirror_name": self._state.get("mirror_name", "GitHub直连")
         }
 
 
