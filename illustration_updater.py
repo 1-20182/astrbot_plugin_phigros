@@ -23,13 +23,27 @@ class IllustrationUpdater:
     🎨 曲绘自动更新器
     
     帮你自动从 GitHub 下载最新曲绘
-    支持代理、定时检查、增量更新
+    支持代理、定时检查、增量更新、多源自动切换
     """
     
-    # GitHub 仓库信息
-    GITHUB_REPO = "NanLiang-Works-Inc/Phigros_Resource"
+    # 多源 GitHub 仓库配置（按优先级排序）
+    GITHUB_SOURCES = [
+        {
+            "repo": "7aGiven/Phigros_Resource",
+            "branch": "master",
+            "priority": 1,
+            "description": "社区曲绘仓库"
+        },
+        {
+            "repo": "NanLiang-Works-Inc/Phigros_Resource",
+            "branch": "main",
+            "priority": 2,
+            "description": "备用曲绘仓库"
+        }
+    ]
+    
     GITHUB_API_URL = "https://api.github.com/repos/{repo}/commits?path={path}&page=1&per_page=1"
-    GITHUB_RAW_URL = "https://raw.githubusercontent.com/{repo}/main/{path}"
+    GITHUB_RAW_URL = "https://raw.githubusercontent.com/{repo}/{branch}/{path}"
     
     # 曲绘路径
     ILLUSTRATION_PATH = "ILLUSTRATION"
@@ -56,6 +70,9 @@ class IllustrationUpdater:
         
         # 代理设置
         self.proxy: Optional[str] = None
+        
+        # 当前使用的源
+        self._current_source = None
         
         logger.info(f"🎨 曲绘更新器初始化完成: {self.illustration_path}")
     
@@ -175,51 +192,66 @@ class IllustrationUpdater:
         """
         logger.info("🔍 正在检查曲绘更新...")
         
-        api_url = self.GITHUB_API_URL.format(
-            repo=self.GITHUB_REPO,
-            path=self.ILLUSTRATION_PATH
-        )
+        # 尝试多个源
+        for source in self.GITHUB_SOURCES:
+            repo = source["repo"]
+            branch = source["branch"]
+            
+            logger.info(f"🔄 尝试从 {source['description']} ({repo}) 检查更新...")
+            
+            api_url = self.GITHUB_API_URL.format(
+                repo=repo,
+                path=self.ILLUSTRATION_PATH
+            )
+            
+            headers = {
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": "Phigros-Plugin-Illustration-Updater"
+            }
+            
+            try:
+                resp = await self._fetch_with_proxy(api_url, headers)
+                if not resp:
+                    logger.warning(f"❌ 无法连接到 {repo}，尝试下一个源...")
+                    continue
+                
+                commits = await resp.json()
+                if not commits:
+                    logger.info(f"ℹ️ {repo} 没有找到曲绘提交记录")
+                    continue
+                
+                latest_commit = commits[0]
+                latest_sha = latest_commit.get("sha", "")
+                commit_msg = latest_commit.get("commit", {}).get("message", "")
+                commit_date = latest_commit.get("commit", {}).get("committer", {}).get("date", "")
+                
+                # 更新检查时间
+                self._state["last_check"] = datetime.now().isoformat()
+                
+                # 记录当前使用的源
+                self._current_source = source
+                self._state["source_repo"] = repo
+                self._state["source_branch"] = branch
+                
+                # 检查是否有新提交
+                last_sha = self._state.get("last_commit_sha")
+                if last_sha == latest_sha:
+                    logger.info(f"✅ 曲绘已经是最新的啦！（来自 {repo}）")
+                    self._save_state()
+                    return False, latest_sha, None
+                
+                # 有新更新
+                update_info = f"最新提交: {commit_msg[:50]}... ({commit_date[:10]}) - 来源: {repo}"
+                logger.info(f"🎉 发现新曲绘！{update_info}")
+                
+                return True, latest_sha, update_info
+                
+            except Exception as e:
+                logger.warning(f"检查更新失败（{repo}）: {e}，尝试下一个源...")
+                continue
         
-        headers = {
-            "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Phigros-Plugin-Illustration-Updater"
-        }
-        
-        try:
-            resp = await self._fetch_with_proxy(api_url, headers)
-            if not resp:
-                logger.warning("❌ 无法连接到 GitHub，跳过更新检查")
-                return False, None, None
-            
-            commits = await resp.json()
-            if not commits:
-                logger.info("ℹ️ 没有找到曲绘提交记录")
-                return False, None, None
-            
-            latest_commit = commits[0]
-            latest_sha = latest_commit.get("sha", "")
-            commit_msg = latest_commit.get("commit", {}).get("message", "")
-            commit_date = latest_commit.get("commit", {}).get("committer", {}).get("date", "")
-            
-            # 更新检查时间
-            self._state["last_check"] = datetime.now().isoformat()
-            
-            # 检查是否有新提交
-            last_sha = self._state.get("last_commit_sha")
-            if last_sha == latest_sha:
-                logger.info("✅ 曲绘已经是最新的啦！")
-                self._save_state()
-                return False, latest_sha, None
-            
-            # 有新更新
-            update_info = f"最新提交: {commit_msg[:50]}... ({commit_date[:10]})"
-            logger.info(f"🎉 发现新曲绘！{update_info}")
-            
-            return True, latest_sha, update_info
-            
-        except Exception as e:
-            logger.error(f"检查更新失败: {e}")
-            return False, None, None
+        logger.error("❌ 所有曲绘源都无法访问")
+        return False, None, None
     
     async def _get_file_list(self) -> List[Dict]:
         """
@@ -228,37 +260,59 @@ class IllustrationUpdater:
         Returns:
             文件列表
         """
-        # 使用 GitHub API 获取目录内容
-        api_url = f"https://api.github.com/repos/{self.GITHUB_REPO}/contents/{self.ILLUSTRATION_PATH}"
+        # 如果有记录的源，优先使用
+        source_repo = self._state.get("source_repo")
+        source_branch = self._state.get("source_branch")
         
-        headers = {
-            "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Phigros-Plugin-Illustration-Updater"
-        }
+        if source_repo and source_branch:
+            sources_to_try = [
+                s for s in self.GITHUB_SOURCES 
+                if s["repo"] == source_repo and s["branch"] == source_branch
+            ] + [s for s in self.GITHUB_SOURCES if s not in sources_to_try]
+        else:
+            sources_to_try = self.GITHUB_SOURCES
         
-        retries = 3
-        for attempt in range(retries):
-            try:
-                resp = await self._fetch_with_proxy(api_url, headers)
-                if not resp:
-                    logger.warning(f"获取文件列表失败，尝试 {attempt+1}/{retries}")
-                    await asyncio.sleep(2 ** attempt)  # 指数退避
+        # 尝试多个源
+        for source in sources_to_try:
+            repo = source["repo"]
+            branch = source["branch"]
+            
+            logger.info(f"🔍 从 {repo} ({branch}) 获取曲绘文件列表...")
+            
+            api_url = f"https://api.github.com/repos/{repo}/contents/{self.ILLUSTRATION_PATH}?ref={branch}"
+            
+            headers = {
+                "Accept": "application/vnd.github.v3+json",
+                "User-Agent": "Phigros-Plugin-Illustration-Updater"
+            }
+            
+            retries = 3
+            for attempt in range(retries):
+                try:
+                    resp = await self._fetch_with_proxy(api_url, headers)
+                    if not resp:
+                        logger.warning(f"获取文件列表失败，尝试 {attempt+1}/{retries}")
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                    
+                    files = await resp.json()
+                    if isinstance(files, list):
+                        # 过滤文件，只保留PNG文件
+                        filtered_files = [f for f in files if f.get("type") == "file" and f.get("name", "").endswith(".png")]
+                        logger.info(f"✅ 从 {repo} 获取到 {len(filtered_files)} 个曲绘文件")
+                        # 更新当前源
+                        self._current_source = source
+                        self._state["source_repo"] = repo
+                        self._state["source_branch"] = branch
+                        return filtered_files
+                    return []
+                    
+                except Exception as e:
+                    logger.warning(f"获取文件列表失败 (尝试 {attempt+1}/{retries}): {e}")
+                    await asyncio.sleep(2 ** attempt)
                     continue
-                
-                files = await resp.json()
-                if isinstance(files, list):
-                    # 过滤文件，只保留PNG文件
-                    filtered_files = [f for f in files if f.get("type") == "file" and f.get("name", "").endswith(".png")]
-                    logger.info(f"获取到 {len(filtered_files)} 个曲绘文件")
-                    return filtered_files
-                return []
-                
-            except Exception as e:
-                logger.warning(f"获取文件列表失败 (尝试 {attempt+1}/{retries}): {e}")
-                await asyncio.sleep(2 ** attempt)  # 指数退避
-                continue
         
-        logger.error("获取文件列表失败，已达到最大重试次数")
+        logger.error("获取文件列表失败，已达到最大重试次数（所有源）")
         return []
     
     async def _download_file(self, file_info: Dict, progress_callback=None) -> bool:
@@ -277,16 +331,23 @@ class IllustrationUpdater:
         remote_size = file_info.get("size", 0)
         
         if not file_name or not download_url:
-            return False
+            # 如果没有download_url，尝试从当前源构建
+            if self._current_source:
+                repo = self._current_source["repo"]
+                branch = self._current_source["branch"]
+                download_url = f"https://raw.githubusercontent.com/{repo}/{branch}/{self.ILLUSTRATION_PATH}/{file_name}"
+                logger.info(f"🔧 自行构建下载链接: {download_url}")
+            else:
+                return False
         
         # 检查本地是否已存在且大小相同
         local_path = self.illustration_path / file_name
         if local_path.exists():
             local_size = local_path.stat().st_size
-            if local_size == remote_size:
+            if remote_size > 0 and local_size == remote_size:
                 logger.debug(f"⏭️ 跳过已存在的文件: {file_name}")
                 return True
-            elif local_size < remote_size:
+            elif remote_size > 0 and local_size < remote_size:
                 # 断点续传
                 headers = {"Range": f"bytes={local_size}-"}
                 logger.info(f"🔄 继续下载: {file_name} (已下载 {local_size}/{remote_size} 字节)")
@@ -299,13 +360,13 @@ class IllustrationUpdater:
             local_size = 0
             headers = None
         
-        retries = 3
+        retries = 5  # 增加重试次数
         for attempt in range(retries):
             try:
                 resp = await self._fetch_with_proxy(download_url, headers)
                 if not resp:
                     logger.warning(f"❌ 无法下载: {file_name}")
-                    await asyncio.sleep(2 ** attempt)  # 指数退避
+                    await asyncio.sleep(2 ** attempt)
                     continue
                 
                 # 处理响应
@@ -325,7 +386,7 @@ class IllustrationUpdater:
                 
                 # 验证文件大小
                 final_size = local_path.stat().st_size
-                if final_size == remote_size:
+                if remote_size == 0 or final_size == remote_size:
                     logger.debug(f"✅ 下载完成: {file_name}")
                     
                     if progress_callback:
@@ -334,12 +395,12 @@ class IllustrationUpdater:
                     return True
                 else:
                     logger.warning(f"⚠️ 文件大小不匹配: {file_name} (期望: {remote_size}, 实际: {final_size})")
-                    await asyncio.sleep(2 ** attempt)  # 指数退避
+                    await asyncio.sleep(2 ** attempt)
                     continue
                 
             except Exception as e:
                 logger.warning(f"下载失败 {file_name} (尝试 {attempt+1}/{retries}): {e}")
-                await asyncio.sleep(2 ** attempt)  # 指数退避
+                await asyncio.sleep(2 ** attempt)
                 continue
         
         return False
@@ -435,7 +496,9 @@ class IllustrationUpdater:
             "last_check": self._state.get("last_check"),
             "last_update": self._state.get("last_update"),
             "total_downloaded": self._state.get("total_downloaded", 0),
-            "is_first_run": self._state.get("is_first_run", True)
+            "is_first_run": self._state.get("is_first_run", True),
+            "source_repo": self._state.get("source_repo", "未知"),
+            "source_branch": self._state.get("source_branch", "未知")
         }
 
 
