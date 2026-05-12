@@ -316,6 +316,52 @@ astrbot_plugin_phigros/
 
 ---
 
+## 🔧 常见问题与解决
+
+### Q: 指令没反应/识别不了？
+
+**解决方案：**
+
+1. **清除 AstrBot 插件缓存**（重要！）
+   ```bash
+   # 重启 AstrBot 服务
+   systemctl restart astrbot
+   
+   # 或者直接重启整个服务
+   ```
+   
+2. **如果还是不行，手动删除插件缓存目录：**
+   ```bash
+   # 删除插件缓存（AstrBot 缓存目录）
+   rm -rf /AstrBot/data/plugins/.cache
+   rm -rf /AstrBot/data/plugins/astrbot_plugin_phigros/__pycache__
+   
+   # 重启 AstrBot
+   systemctl restart astrbot
+   ```
+
+3. **完全重装插件：**
+   ```bash
+   # 1. 先在 WebUI 中完全卸载插件
+   # 2. 删除插件目录
+   rm -rf /AstrBot/data/plugins/astrbot_plugin_phigros
+   # 3. 重新安装最新版本
+   ```
+
+### Q: 命令重复注册/冲突？
+
+这可能是因为之前安装过旧版本插件，命令缓存没有清除。
+
+**解决方法同上，请先清除缓存并重启！**
+
+### Q: 曲绘下载失败？
+
+- 检查网络连接
+- 尝试配置代理（`illustration_update_proxy`）
+- 手动下载曲绘放入 `ILLUSTRATION` 文件夹
+
+---
+
 ## 🙏 感谢大佬
 
 **特别鸣谢：**
