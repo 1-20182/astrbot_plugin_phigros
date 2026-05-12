@@ -15,14 +15,12 @@ class OtherCommands:
     def __init__(self, plugin):
         self.plugin = plugin
 
-    @filter.command("phi_help")
     async def get_help(self, event: AstrMessageEvent):
         """
         获取帮助信息
         用法: /phi_help
         """
         try:
-            # 尝试生成帮助图片
             if self.plugin.HELP_IMAGE_GENERATOR_AVAILABLE:
                 from ..help_image_generator import generate_help_image
                 output_path = self.plugin.output_dir / "help_image.png"
@@ -35,7 +33,6 @@ class OtherCommands:
                     ])
                     return
 
-            # 回退到文字帮助
             help_text = """
 🎮 Phigros 插件帮助
 
@@ -70,7 +67,6 @@ class OtherCommands:
 
         except Exception as e:
             self.plugin.logger.error(f"生成帮助信息失败: {e}")
-            # 发送简单文字帮助
             simple_help = """
 🎮 Phigros 插件命令：
   /phi_bind <token> - 绑定账号
@@ -83,7 +79,6 @@ class OtherCommands:
             """
             yield event.plain_result(simple_help)
 
-    @filter.command("phi_video")
     async def send_random_video(self, event: AstrMessageEvent):
         """
         发送随机 Phigros 视频
@@ -109,7 +104,6 @@ class OtherCommands:
             self.plugin.logger.error(f"发送视频失败: {e}")
             yield event.plain_result(f"❌ 发送视频失败: {str(e)}")
 
-    @filter.command("phi_video_list")
     async def list_videos(self, event: AstrMessageEvent):
         """
         列出所有可用视频

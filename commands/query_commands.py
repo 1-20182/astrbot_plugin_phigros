@@ -17,7 +17,6 @@ class QueryCommands:
     def __init__(self, plugin):
         self.plugin = plugin
 
-    @filter.command("phi_save")
     async def get_save(self, event: AstrMessageEvent, session_token: str = None, taptap_version: str = None):
         """
         获取 Phigros 云存档数据
@@ -67,7 +66,6 @@ class QueryCommands:
         except Exception as e:
             yield event.plain_result(f"❌ 获取存档失败: {str(e)}")
 
-    @filter.command("phi_b30")
     async def get_best30(self, event: AstrMessageEvent, session_token: str = None, taptap_version: str = None, theme: str = "black"):
         """
         获取 Best 30 成绩图（API直接生成SVG）
@@ -181,7 +179,6 @@ class QueryCommands:
         except Exception as e:
             yield event.plain_result(f"❌ 获取 Best30 失败: {str(e)}")
 
-    @filter.command("phi_rks_history")
     async def get_rks_history(self, event: AstrMessageEvent, session_token: str = None, limit: int = None):
         """
         查询 RKS 历史变化
@@ -275,7 +272,6 @@ class QueryCommands:
         except Exception as e:
             yield event.plain_result(f"❌ 查询 RKS 历史失败: {str(e)}")
 
-    @filter.command("phi_leaderboard")
     async def get_leaderboard(self, event: AstrMessageEvent):
         """
         获取 RKS 排行榜 Top（带图片）
@@ -299,7 +295,6 @@ class QueryCommands:
         except Exception as e:
             yield event.plain_result(f"❌ 获取排行榜失败: {str(e)}")
 
-    @filter.command("phi_rank")
     async def get_by_rank(self, event: AstrMessageEvent, start: int = None, end: int = None):
         """
         按排名区间查询玩家
@@ -339,7 +334,6 @@ class QueryCommands:
         except Exception as e:
             yield event.plain_result(f"❌ 查询排名失败: {str(e)}")
 
-    @filter.command("phi_search")
     async def search_songs(self, event: AstrMessageEvent, keyword: str, limit: int = None):
         """
         搜索 Phigros 曲目
@@ -400,7 +394,6 @@ class QueryCommands:
         except Exception as e:
             yield event.plain_result(f"❌ 搜索曲目失败: {str(e)}")
 
-    @filter.command("phi_song")
     async def get_song_image(self, event: AstrMessageEvent, song_id: str):
         """
         获取指定歌曲的成绩图
@@ -516,7 +509,6 @@ class QueryCommands:
         except Exception as e:
             yield event.plain_result(f"❌ 获取歌曲成绩图失败: {str(e)}")
 
-    @filter.command("phi_updates")
     async def get_updates(self, event: AstrMessageEvent, count: int = 3):
         """
         获取 Phigros 新曲速递
@@ -575,7 +567,6 @@ class QueryCommands:
 
         return Plain("" .join(msg_parts))
 
-    @filter.command("phi_bn")
     async def get_bestn(self, event: AstrMessageEvent, n: int = 30, theme: str = "black"):
         """
         获取 BestN 成绩图（API直接生成SVG）

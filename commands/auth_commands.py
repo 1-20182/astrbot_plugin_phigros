@@ -17,7 +17,6 @@ class AuthCommands:
     def __init__(self, plugin):
         self.plugin = plugin
 
-    @filter.command("phi_bind")
     async def bind_user(self, event: AstrMessageEvent, session_token: str, taptap_version: str = "cn"):
         """
         绑定 Phigros 账号（保存 sessionToken）
@@ -53,7 +52,6 @@ class AuthCommands:
         except Exception as e:
             yield event.plain_result(f"❌ 绑定失败: {str(e)}\n请检查 sessionToken 是否正确")
 
-    @filter.command("phi_qrlogin")
     async def qr_login(self, event: AstrMessageEvent, taptap_version: str = "cn"):
         """
         使用 TapTap 扫码登录（自动获取 sessionToken）
@@ -188,7 +186,6 @@ class AuthCommands:
             except Exception as e:
                 logger.warning(f"清理登录管理器资源时出错: {e}")
 
-    @filter.command("phi_unbind")
     async def unbind_user(self, event: AstrMessageEvent):
         """
         解绑 Phigros 账号

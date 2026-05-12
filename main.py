@@ -172,10 +172,20 @@ class PhigrosPlugin(Star):
             DEFAULT_API_TOKEN, 
             "phigros_api_token"
         )
-        if self.api_token:
-            logger.info("Phigros API Token 已配置")
+        # 智能检测：即使配置了空字符串也算未配置
+        if self.api_token and str(self.api_token).strip():
+            # 隐藏部分token用于日志显示
+            token_str = str(self.api_token)
+            if len(token_str) > 10:
+                display_token = token_str[:6] + "***" + token_str[-4:]
+            else:
+                display_token = "***"
+            logger.info(f"Phigros API Token 已配置: {display_token}")
         else:
-            logger.warning("Phigros API Token 未配置，请在 WebUI 中设置")
+            if DEFAULT_API_TOKEN:
+                logger.info("使用默认 API Token")
+            else:
+                logger.warning("⚠️ Phigros API Token 未配置，请在 WebUI 中设置（部分功能可能受限）")
 
         # 读取其他配置
         self.enable_renderer = ConfigManager.get_config(
