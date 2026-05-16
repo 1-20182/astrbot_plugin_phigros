@@ -5,6 +5,7 @@
 """
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.message_components import Plain, Image
+from astrbot.api import logger  # [修复 C-1] 添加 logger 导入
 
 from ..core.exceptions import PhigrosAPIError, AuthError
 

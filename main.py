@@ -129,12 +129,15 @@ class PhigrosPlugin(Star):
         self.renderer: Optional[PhigrosRenderer] = None
         self.cache: Optional[HybridCache] = None
 
+        # 后台任务集合，防止 Task 被垃圾回收 [修复 H-1]
+        self._background_tasks: set = set()
+
         # 使用插件目录作为数据目录（避免路径问题）
         self.data_dir: Path = Path(__file__).parent
         self.output_dir = self.data_dir / "output"
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"📁 插件数据目录: {self.data_dir}")
-        logger.info(f"📁 输出目录: {self.output_dir}")
+        logger.info(f"[Phigros] 插件数据目录: {self.data_dir}")
+        logger.info(f"[Phigros] 输出目录: {self.output_dir}")
 
         # 初始化用户数据管理器
         self.user_data = UserDataManager(self.data_dir)
@@ -245,7 +248,7 @@ class PhigrosPlugin(Star):
             disk_ttl=3600,  # 1小时
             disk_max_size=1000
         )
-        logger.info("� 混合缓存初始化成功")
+        logger.info("[Phigros] 混合缓存初始化成功")
 
         # 初始化渲染器
         logger.info(f"🔧 开始初始化渲染器: ADVANCED_RENDERER_AVAILABLE={ADVANCED_RENDERER_AVAILABLE}, enable_renderer={self.enable_renderer}")
@@ -322,9 +325,12 @@ class PhigrosPlugin(Star):
                 "enable_auto_update_illustration"
             )
             if self.enable_auto_update:
-                asyncio.create_task(self._auto_update_illustrations())
+                # [修复 H-1] 保存 Task 引用防止被 GC 回收
+                task = asyncio.create_task(self._auto_update_illustrations())
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
             else:
-                logger.info("⏭️ 曲绘自动更新已禁用，跳过检查")
+                logger.info("[Phigros] 曲绘自动更新已禁用，跳过检查")
 
     async def _auto_update_illustrations(self):
         """自动更新曲绘（后台任务）"""
@@ -358,11 +364,110 @@ class PhigrosPlugin(Star):
             logger.warning(f"自动更新曲绘失败: {e}")
 
     async def terminate(self):
-        """插件销毁"""
+        """
+        插件终止方法 - 执行完整的清理逻辑
+        
+        修复内容 [H-2]：
+        1. 记录插件关闭日志
+        2. 取消所有后台任务
+        3. 清理缓存资源
+        4. 关闭子模块（API 客户端、渲染器）
+        5. 尝试清理已注册的指令 [Issue #6]
+        """
+        logger.info("[Phigros] 插件正在关闭...")
+
+        # 步骤 1: 取消所有后台任务
+        await self._cancel_background_tasks()
+
+        # 步骤 2: 清理缓存
+        if hasattr(self, 'cache') and self.cache is not None:
+            try:
+                await self.cache.clear()
+                logger.info("[Phigros] 缓存已清理")
+            except Exception as e:
+                logger.warning(f"[Phigros] 清理缓存时出错: {e}")
+
+        # 步骤 3: 关闭 API 客户端
         if self.api_client:
-            await self.api_client.terminate()
+            try:
+                await self.api_client.terminate()
+                logger.info("[Phigros] API 客户端已关闭")
+            except Exception as e:
+                logger.warning(f"[Phigros] 关闭 API 客户端时出错: {e}")
+
+        # 步骤 4: 关闭渲染器
         if self.renderer:
-            await self.renderer.terminate()
+            try:
+                await self.renderer.terminate()
+                logger.info("[Phigros] 渲染器已关闭")
+            except Exception as e:
+                logger.warning(f"[Phigros] 关闭渲染器时出错: {e}")
+
+        # 步骤 5: 尝试清理已注册的指令 [Issue #6]
+        self._cleanup_registered_commands()
+
+        logger.info("[Phigros] 插件已完全关闭")
+
+    async def _cancel_background_tasks(self):
+        """取消所有后台任务并等待它们完成"""
+        if not self._background_tasks:
+            return
+
+        logger.info(f"[Phigros] 正在取消 {len(self._background_tasks)} 个后台任务...")
+
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+
+        # 等待所有任务处理 CancelledError
+        if self._background_tasks:
+            results = await asyncio.gather(
+                *self._background_tasks, return_exceptions=True
+            )
+
+            # 记录任何非预期的异常
+            for i, result in enumerate(results):
+                if isinstance(result, Exception) and not isinstance(
+                    result, asyncio.CancelledError
+                ):
+                    logger.warning(f"[Phigros] 后台任务 {i} 异常退出: {result}")
+
+        self._background_tasks.clear()
+        logger.info("[Phigros] 所有后台任务已取消")
+
+    def _cleanup_registered_commands(self):
+        """
+        尝试清理已注册的指令 [Issue #6]
+        
+        注意：当前 AstrBot 框架可能不支持运行时移除已注册的指令。
+        此方法尝试通过框架 API 移除指令；如果框架不支持，
+        则记录警告日志提示管理员可能需要重启 AstrBot 来完全清理指令。
+        """
+        # 记录所有已注册的指令名称
+        registered_commands = [
+            "phi_bind", "phi_qrlogin", "phi_unbind",
+            "phi_save", "phi_b30", "phi_rks_history",
+            "phi_leaderboard", "phi_rank", "phi_search",
+            "phi_song", "phi_updates", "phi_bn",
+            "phi_help", "phi_video", "phi_video_list", "phi_metrics"
+        ]
+
+        logger.info(f"[Phigros] 尝试清理 {len(registered_commands)} 个已注册指令...")
+
+        # 尝试通过框架上下文移除指令
+        try:
+            if hasattr(self.context, "unregister_command"):
+                for cmd_name in registered_commands:
+                    self.context.unregister_command(cmd_name)
+                logger.info("[Phigros] 已通过框架 API 清理指令")
+            else:
+                logger.warning(
+                    "[Phigros] 当前框架版本不支持运行时移除指令。"
+                    "卸载插件后 phi_ 前缀指令可能仍然存在，"
+                    "建议重启 AstrBot 以完全清理。"
+                )
+        except Exception as e:
+            logger.warning(f"[Phigros] 清理指令时出错: {e}")
 
     async def _render_and_send(
         self, event: AstrMessageEvent, 

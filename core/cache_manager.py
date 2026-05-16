@@ -146,10 +146,12 @@ class LRUCache(Generic[K, V]):
             Dict[str, int]: 包含命中、未命中和大小的字典
         """
         async with self._lock:
+            # [修复 H-4] 修复引用不存在属性 self._cache 的 bug
+            cache_files = list(self.cache_dir.glob("*.cache"))
             return {
                 "hits": self._hits,
                 "misses": self._misses,
-                "size": len(self._cache)
+                "size": len(cache_files)
             }
 
 
